@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: kawang-shop
+  http:
+    converters:
+      preferred-json-mapper: jackson2
+  datasource:
+    url: jdbc:mysql://localhost:3306/test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: always
+      encoding: UTF-8
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+shop:
+  security:
+    jwt:
+      secret: "shop-demo-jwt-secret-key-please-change-this"
+      expire-hours: 12
+    admin:
+      username: admin
+      password: Admin@123456
+      display-name: 平台管理员
+  crypto:
+    aes-key: "shop-demo-aes-key-please-change-this"
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - http://localhost:5174
+      - http://127.0.0.1:5173
+      - http://127.0.0.1:5174

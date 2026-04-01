@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# frontend build output
+dist/
+**/dist/
+.vite/
+**/.vite/
+
+# backend build output
+target/
+**/target/
+
+# local logs
+*.log
+**/*.log
+
+# local caches
+.m2/
+
+# editor / system files
+.DS_Store
+Thumbs.db
