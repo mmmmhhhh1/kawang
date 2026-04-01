@@ -1,9 +1,9 @@
 # kawang
 
-AI 会员商城项目代码仓库。
+Frontend and backend project for selling AI memberships.
 
-目录说明：
+Project structure:
 
-- `front`：商城前端
-- `admin`：后台管理前端
-- `backend/kah`：Spring Boot 后端
+- `front`: mall frontend
+- `admin`: admin frontend
+- `backend/kah`: Spring Boot backend
