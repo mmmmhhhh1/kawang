@@ -1,4 +1,4 @@
-import { http, type ApiResponse } from './http'
+﻿import { http, type ApiResponse } from './http'
 
 export type Product = {
   id: number
@@ -25,7 +25,13 @@ export type CreateOrderPayload = {
   quantity: number
   buyerName: string
   buyerContact: string
+  lookupSecret: string
   remark: string
+}
+
+export type CardKeyRecord = {
+  cardKey: string
+  enableStatus: 'ENABLED' | 'DISABLED'
 }
 
 export type OrderResult = {
@@ -34,10 +40,12 @@ export type OrderResult = {
   quantity: number
   totalAmount: number
   message: string
+  cardKeys: CardKeyRecord[]
 }
 
 export type QueryOrdersPayload = {
   buyerContact: string
+  lookupSecret?: string
   orderNo?: string
 }
 
@@ -49,6 +57,7 @@ export type OrderRecord = {
   totalAmount: number
   status: 'SUCCESS' | 'CLOSED'
   createdAt: string
+  cardKeys: CardKeyRecord[]
 }
 
 export async function getProducts() {

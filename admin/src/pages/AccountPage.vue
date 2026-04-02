@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { createAccounts, getAccounts, updateAccountStatus, type AccountRecord } from '@/api/accounts'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  bulkDisableAccounts,
+  bulkEnableAccounts,
+  createAccounts,
+  deleteAccount,
+  getAccounts,
+  updateAccountStatus,
+  type AccountRecord,
+} from '@/api/accounts'
 import { getProducts, type ProductRecord } from '@/api/products'
 
 const loading = ref(false)
@@ -12,7 +20,8 @@ const accounts = ref<AccountRecord[]>([])
 
 const filters = reactive({
   productId: undefined as number | undefined,
-  status: '',
+  saleStatus: '',
+  enableStatus: '',
 })
 
 const form = reactive({
@@ -28,7 +37,7 @@ async function loadBaseData() {
 async function loadAccounts() {
   loading.value = true
   try {
-    accounts.value = await getAccounts(filters.productId, filters.status)
+    accounts.value = await getAccounts(filters.productId, filters.saleStatus, filters.enableStatus)
   } finally {
     loading.value = false
   }
@@ -46,19 +55,18 @@ function parseBatchInput() {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [accountName, secret, note = ''] = line.split('----')
-      if (!accountName || !secret) {
-        throw new Error('每行必须使用 账号----密码----备注 格式，备注可省略')
+      const [cardKey, note = ''] = line.split('----')
+      if (!cardKey) {
+        throw new Error('每行至少需要一条卡密')
       }
       return {
-        accountName: accountName.trim(),
-        secret: secret.trim(),
+        cardKey: cardKey.trim(),
         note: note.trim(),
       }
     })
 
   if (!items.length) {
-    throw new Error('请至少填写一行账号')
+    throw new Error('请至少填写一行卡密')
   }
   return items
 }
@@ -72,25 +80,82 @@ async function submitAccounts() {
   try {
     const items = parseBatchInput()
     await createAccounts({ productId: form.productId, items })
-    ElMessage.success('账号导入成功')
+    ElMessage.success('卡密导入成功')
     dialogVisible.value = false
     await loadAccounts()
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.message ?? error?.message ?? '账号导入失败')
+    ElMessage.error(error?.response?.data?.message ?? error?.message ?? '卡密导入失败')
   } finally {
     saving.value = false
   }
 }
 
 async function switchStatus(row: AccountRecord) {
-  const nextStatus = row.status === 'AVAILABLE' ? 'DISABLED' : 'AVAILABLE'
+  const nextStatus = row.enableStatus === 'ENABLED' ? 'DISABLED' : 'ENABLED'
   try {
     await updateAccountStatus(row.id, nextStatus)
-    ElMessage.success(nextStatus === 'AVAILABLE' ? '账号已启用' : '账号已禁用')
+    ElMessage.success(nextStatus === 'ENABLED' ? '卡密已启用' : '卡密已停用')
     await loadAccounts()
   } catch (error: any) {
-    ElMessage.error(error?.response?.data?.message ?? '状态修改失败')
+    ElMessage.error(error?.response?.data?.message ?? '卡密状态修改失败')
   }
+}
+
+async function runBulk(scope: 'PRODUCT' | 'ALL', enable: boolean) {
+  if (scope === 'PRODUCT' && !filters.productId) {
+    ElMessage.warning('请先选择商品，再执行当前商品批量操作')
+    return
+  }
+
+  const actionLabel = enable ? '启用' : '停用'
+  const scopeLabel = scope === 'PRODUCT' ? '当前商品全部卡密' : '全站全部卡密'
+  try {
+    await ElMessageBox.confirm(`确定${actionLabel}${scopeLabel}吗？`, `${actionLabel}卡密`, {
+      type: 'warning',
+      confirmButtonText: `确认${actionLabel}`,
+      cancelButtonText: '取消',
+    })
+    const updated = enable
+      ? await bulkEnableAccounts(scope, filters.productId)
+      : await bulkDisableAccounts(scope, filters.productId)
+    ElMessage.success(`已${actionLabel}${updated}条卡密`)
+    await loadAccounts()
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
+    ElMessage.error(error?.response?.data?.message ?? `${actionLabel}失败`)
+  }
+}
+
+async function removeAccount(row: AccountRecord) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除卡密“${row.cardKey}”吗？已售卡密会被后端拒绝删除。`,
+      '删除卡密',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    )
+    await deleteAccount(row.id)
+    ElMessage.success('卡密已删除')
+    await loadAccounts()
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
+    ElMessage.error(error?.response?.data?.message ?? '卡密删除失败')
+  }
+}
+
+function saleStatusLabel(status: string) {
+  return status === 'SOLD' ? '已售' : '未售'
+}
+
+function enableStatusLabel(status: string) {
+  return status === 'ENABLED' ? '启用' : '停用'
 }
 
 onMounted(loadBaseData)
@@ -101,53 +166,68 @@ onMounted(loadBaseData)
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>账号池负责真实库存。新增可用账号会同步增加库存，禁用可用账号会同步减少库存。</p>
-          <h1>账号池管理</h1>
+          <p>只有“未售 + 启用”的卡密会参与库存统计。管理员可以单条删除、单条启停，也可以按商品或全站批量启停。</p>
+          <h1>卡密池管理</h1>
         </div>
-        <el-button type="primary" @click="openDialog">批量导入账号</el-button>
+        <div class="page-header__actions">
+          <el-button @click="runBulk('PRODUCT', true)">当前商品全部启用</el-button>
+          <el-button @click="runBulk('PRODUCT', false)">当前商品全部停用</el-button>
+          <el-button type="success" plain @click="runBulk('ALL', true)">全站全部启用</el-button>
+          <el-button type="danger" plain @click="runBulk('ALL', false)">全站全部停用</el-button>
+          <el-button type="primary" @click="openDialog">批量导入卡密</el-button>
+        </div>
       </div>
 
-      <div class="toolbar">
+      <div class="toolbar toolbar-grid">
         <el-select v-model="filters.productId" clearable placeholder="按商品筛选">
           <el-option v-for="item in products" :key="item.id" :label="item.title" :value="item.id" />
         </el-select>
-        <el-select v-model="filters.status" clearable placeholder="按状态筛选">
-          <el-option label="可用" value="AVAILABLE" />
-          <el-option label="已分配" value="ASSIGNED" />
-          <el-option label="已禁用" value="DISABLED" />
+        <el-select v-model="filters.saleStatus" clearable placeholder="按售卖状态筛选">
+          <el-option label="未售" value="UNSOLD" />
+          <el-option label="已售" value="SOLD" />
+        </el-select>
+        <el-select v-model="filters.enableStatus" clearable placeholder="按启用状态筛选">
+          <el-option label="启用" value="ENABLED" />
+          <el-option label="停用" value="DISABLED" />
         </el-select>
         <el-button @click="loadAccounts">刷新</el-button>
       </div>
 
       <el-table :data="accounts" v-loading="loading" border>
-        <el-table-column prop="productTitle" label="所属商品" min-width="200" />
-        <el-table-column prop="accountNameMasked" label="账号脱敏值" width="180" />
-        <el-table-column label="状态" width="120">
+        <el-table-column prop="productTitle" label="所属商品" min-width="220" />
+        <el-table-column prop="cardKey" label="卡密" min-width="260" />
+        <el-table-column label="售卖状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'AVAILABLE' ? 'success' : row.status === 'ASSIGNED' ? 'warning' : 'info'">
-              {{ row.status }}
+            <el-tag :type="row.saleStatus === 'SOLD' ? 'warning' : 'success'">
+              {{ saleStatusLabel(row.saleStatus) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="assignedOrderId" label="绑定订单" width="120" />
+        <el-table-column label="启用状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.enableStatus === 'ENABLED' ? 'success' : 'info'">
+              {{ enableStatusLabel(row.enableStatus) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="assignedOrderId" label="绑定订单" width="130" />
         <el-table-column prop="createdAt" label="创建时间" min-width="180" />
-        <el-table-column label="操作" width="160">
+        <el-table-column label="操作" width="210" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.status !== 'ASSIGNED'"
               link
-              :type="row.status === 'AVAILABLE' ? 'warning' : 'success'"
+              :type="row.enableStatus === 'ENABLED' ? 'warning' : 'success'"
               @click="switchStatus(row)"
             >
-              {{ row.status === 'AVAILABLE' ? '禁用' : '启用' }}
+              {{ row.enableStatus === 'ENABLED' ? '停用' : '启用' }}
             </el-button>
-            <span v-else class="muted">已随订单占用</span>
+            <el-button link type="danger" @click="removeAccount(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" width="min(760px, 94vw)" title="批量导入账号">
+    <el-dialog v-model="dialogVisible" width="min(760px, 94vw)" title="批量导入卡密">
       <el-form label-position="top">
         <el-form-item label="所属商品">
           <el-select v-model="form.productId" placeholder="选择商品">
@@ -159,10 +239,10 @@ onMounted(loadBaseData)
             v-model="form.batchText"
             type="textarea"
             :rows="10"
-            placeholder="每行一个账号，格式：账号----密码----备注"
+            placeholder="每行一条卡密，可选格式：卡密----备注"
           />
         </el-form-item>
-        <p class="muted">示例：chatgpt-001@example.com----Pass@123----首批账号</p>
+        <p class="muted">示例：CHATGPT-PLUS-CARD-001----首批卡密</p>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -171,3 +251,30 @@ onMounted(loadBaseData)
     </el-dialog>
   </div>
 </template>
+
+<style scoped>
+.page-header__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.toolbar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 1080px) {
+  .toolbar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .toolbar-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

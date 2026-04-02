@@ -4,8 +4,9 @@ export type AccountRecord = {
   id: number
   productId: number
   productTitle: string
-  accountNameMasked: string
-  status: 'AVAILABLE' | 'ASSIGNED' | 'DISABLED'
+  cardKey: string
+  saleStatus: 'UNSOLD' | 'SOLD'
+  enableStatus: 'ENABLED' | 'DISABLED'
   assignedOrderId: number | null
   assignedAt: string | null
   createdAt: string
@@ -14,17 +15,17 @@ export type AccountRecord = {
 export type BatchAccountPayload = {
   productId: number
   items: Array<{
-    accountName: string
-    secret: string
+    cardKey: string
     note: string
   }>
 }
 
-export async function getAccounts(productId?: number, status?: string) {
+export async function getAccounts(productId?: number, saleStatus?: string, enableStatus?: string) {
   const response = await adminHttp.get<ApiResponse<AccountRecord[]>>('/accounts', {
     params: {
       productId,
-      status: status || undefined,
+      saleStatus: saleStatus || undefined,
+      enableStatus: enableStatus || undefined,
     },
   })
   return response.data.data
@@ -35,7 +36,27 @@ export async function createAccounts(payload: BatchAccountPayload) {
   return response.data.data
 }
 
-export async function updateAccountStatus(id: number, status: 'AVAILABLE' | 'DISABLED') {
-  const response = await adminHttp.patch<ApiResponse<AccountRecord>>(`/accounts/${id}/status`, { status })
+export async function updateAccountStatus(id: number, enableStatus: 'ENABLED' | 'DISABLED') {
+  const response = await adminHttp.patch<ApiResponse<AccountRecord>>(`/accounts/${id}/status`, { enableStatus })
   return response.data.data
+}
+
+export async function bulkDisableAccounts(scope: 'PRODUCT' | 'ALL', productId?: number) {
+  const response = await adminHttp.patch<ApiResponse<number>>('/accounts/bulk-disable', {
+    scope,
+    productId,
+  })
+  return response.data.data
+}
+
+export async function bulkEnableAccounts(scope: 'PRODUCT' | 'ALL', productId?: number) {
+  const response = await adminHttp.patch<ApiResponse<number>>('/accounts/bulk-enable', {
+    scope,
+    productId,
+  })
+  return response.data.data
+}
+
+export async function deleteAccount(id: number) {
+  await adminHttp.delete<ApiResponse<void>>(`/accounts/${id}`)
 }

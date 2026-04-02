@@ -39,7 +39,7 @@ async function submit() {
   <div class="shell-body">
     <section class="auth-grid">
       <article class="glass-card auth-intro-card">
-        <span class="section-kicker">登录</span>
+        <span class="auth-card-title">登录</span>
         <h1>登录会员账号</h1>
         <p>登录后下单会自动绑定到当前账号，并在“我的订单”里统一查看。</p>
         <ul class="auth-feature-list">
@@ -59,8 +59,8 @@ async function submit() {
       </article>
 
       <article class="auth-form-card">
-        <div class="auth-form-card__head">
-          <span class="section-chip">账号登录</span>
+        <div class="auth-form-card__head auth-form-card__head--center">
+          <span class="auth-card-title">账号登录</span>
           <h2>欢迎回来</h2>
           <p>输入用户名和密码，继续查询已绑定订单或完成新的下单流程。</p>
         </div>
@@ -94,8 +94,31 @@ async function submit() {
   gap: 22px;
 }
 
+.auth-intro-card {
+  text-align: center;
+}
+
+.auth-card-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 32px;
+  margin: 0 auto 14px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(18px);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+}
+
 .auth-intro-card h1 {
-  margin: 10px 0 12px;
+  margin: 0 0 12px;
   font-size: clamp(30px, 4vw, 42px);
 }
 
@@ -111,6 +134,7 @@ async function submit() {
   list-style: none;
   display: grid;
   gap: 12px;
+  text-align: left;
 }
 
 .auth-feature-list li {
@@ -132,8 +156,12 @@ async function submit() {
   backdrop-filter: blur(28px);
 }
 
+.auth-form-card__head--center {
+  text-align: center;
+}
+
 .auth-form-card__head h2 {
-  margin: 12px 0 8px;
+  margin: 0 0 8px;
   font-size: 30px;
 }
 

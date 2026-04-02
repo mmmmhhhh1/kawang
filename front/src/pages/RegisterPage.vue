@@ -55,7 +55,7 @@ async function submit() {
   <div class="shell-body">
     <section class="auth-grid">
       <article class="glass-card auth-intro-card">
-        <span class="section-kicker">注册</span>
+        <span class="auth-card-title">注册</span>
         <h1>创建会员账号</h1>
         <p>注册完成后会自动登录，后续每次下单都可以自动绑定到当前账号。</p>
         <ul class="auth-feature-list">
@@ -75,8 +75,8 @@ async function submit() {
       </article>
 
       <article class="auth-form-card">
-        <div class="auth-form-card__head">
-          <span class="section-chip">创建账号</span>
+        <div class="auth-form-card__head auth-form-card__head--center">
+          <span class="auth-card-title">创建账号</span>
           <h2>开始使用</h2>
           <p>只需要一个用户名和密码，就可以获得完整的下单与查单能力。</p>
         </div>
@@ -120,8 +120,31 @@ async function submit() {
   gap: 22px;
 }
 
+.auth-intro-card {
+  text-align: center;
+}
+
+.auth-card-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 32px;
+  margin: 0 auto 14px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(18px);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+}
+
 .auth-intro-card h1 {
-  margin: 10px 0 12px;
+  margin: 0 0 12px;
   font-size: clamp(30px, 4vw, 42px);
 }
 
@@ -137,6 +160,7 @@ async function submit() {
   list-style: none;
   display: grid;
   gap: 12px;
+  text-align: left;
 }
 
 .auth-feature-list li {
@@ -158,8 +182,12 @@ async function submit() {
   backdrop-filter: blur(28px);
 }
 
+.auth-form-card__head--center {
+  text-align: center;
+}
+
 .auth-form-card__head h2 {
-  margin: 12px 0 8px;
+  margin: 0 0 8px;
   font-size: 30px;
 }
 

@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.ProductMapper">
+
+    <sql id="productColumns">
+        id, sku, title, vendor, plan_name, description, price, available_stock, sold_count, status, sort_order, created_at, updated_at
+    </sql>
+
+    <select id="findActiveProducts" resultType="org.example.kah.entity.ShopProduct">
+        SELECT <include refid="productColumns" />
+        FROM shop_product
+        WHERE status = 'ACTIVE'
+        ORDER BY sort_order ASC, id DESC
+    </select>
+
+    <select id="findAllProducts" resultType="org.example.kah.entity.ShopProduct">
+        SELECT <include refid="productColumns" />
+        FROM shop_product
+        ORDER BY sort_order ASC, id DESC
+    </select>
+
+    <select id="findById" resultType="org.example.kah.entity.ShopProduct">
+        SELECT <include refid="productColumns" />
+        FROM shop_product
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findBySku" resultType="org.example.kah.entity.ShopProduct">
+        SELECT <include refid="productColumns" />
+        FROM shop_product
+        WHERE sku = #{sku}
+        LIMIT 1
+    </select>
+
+    <select id="lockById" resultType="org.example.kah.entity.ShopProduct">
+        SELECT <include refid="productColumns" />
+        FROM shop_product
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <insert id="insert" parameterType="org.example.kah.entity.ShopProduct" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shop_product (
+            sku, title, vendor, plan_name, description, price, available_stock, sold_count, status, sort_order
+        ) VALUES (
+            #{sku}, #{title}, #{vendor}, #{planName}, #{description}, #{price}, #{availableStock}, #{soldCount}, #{status}, #{sortOrder}
+        )
+    </insert>
+
+    <update id="update" parameterType="org.example.kah.entity.ShopProduct">
+        UPDATE shop_product
+        SET sku = #{sku},
+            title = #{title},
+            vendor = #{vendor},
+            plan_name = #{planName},
+            description = #{description},
+            price = #{price},
+            status = #{status},
+            sort_order = #{sortOrder}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE shop_product
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <update id="adjustStats">
+        UPDATE shop_product
+        SET available_stock = available_stock + #{stockDelta},
+            sold_count = sold_count + #{soldDelta}
+        WHERE id = #{id}
+    </update>
+
+    <update id="syncStats">
+        UPDATE shop_product p
+        SET available_stock = (
+                SELECT COUNT(*)
+                FROM product_account pa
+                WHERE pa.product_id = p.id
+                  AND pa.resource_type = 'CARD_KEY'
+                  AND pa.sale_status = 'UNSOLD'
+                  AND pa.enable_status = 'ENABLED'
+            ),
+            sold_count = (
+                SELECT COUNT(*)
+                FROM product_account pa
+                WHERE pa.product_id = p.id
+                  AND pa.resource_type = 'CARD_KEY'
+                  AND pa.sale_status = 'SOLD'
+            )
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM shop_product
+        WHERE id = #{id}
+    </delete>
+</mapper>

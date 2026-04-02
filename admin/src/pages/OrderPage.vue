@@ -81,7 +81,7 @@ onMounted(async () => {
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>订单创建后默认成功。关闭订单会释放占用账号并回滚库存与销量。</p>
+          <p>订单创建后默认成功。关闭订单会释放已分配卡密并回滚商品库存与销量。</p>
           <h1>订单管理</h1>
         </div>
       </div>
@@ -148,9 +148,9 @@ onMounted(async () => {
         </el-descriptions>
 
         <div style="margin-top: 20px;">
-          <h3>已分配账号（脱敏）</h3>
+          <h3>已分配卡密</h3>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <el-tag v-for="item in detail.accounts" :key="item" type="info" effect="plain">{{ item }}</el-tag>
+            <el-tag v-for="item in detail.cardKeys" :key="item" type="info" effect="plain">{{ item }}</el-tag>
           </div>
         </div>
       </template>

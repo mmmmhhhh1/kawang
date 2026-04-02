@@ -17,7 +17,7 @@ export type OrderRecord = {
 }
 
 export type OrderDetail = OrderRecord & {
-  accounts: string[]
+  cardKeys: string[]
 }
 
 export type PageResult<T> = {

@@ -4,38 +4,53 @@ import java.time.LocalDateTime;
 import lombok.Data;
 
 /**
- * 商品账号池实体。
- * 对应表 {@code product_account}，保存商品可分配账号的脱敏信息与密文。
+ * 商品资源池实体。
+ * 对应表 {@code product_account}，当前主要承载卡密池记录，同时兼容历史账号池迁移数据。
  */
 @Data
 public class ProductAccount {
 
-    /** 账号记录主键。 */
+    /** 资源记录主键。 */
     private Long id;
 
     /** 所属商品主键。 */
     private Long productId;
 
-    /** 仅供展示的商品标题，来源于关联查询，不直接落表。 */
+    /** 联表查询时带出的商品标题。 */
     private String productTitle;
 
-    /** 脱敏后的账号名，用于后台列表和订单快照展示。 */
+    /** 旧账号池兼容字段，用于旧表结构的非空约束和历史数据保留。 */
     private String accountNameMasked;
 
-    /** 加密后的账号名密文。 */
+    /** 旧账号池兼容字段。 */
     private String accountCiphertext;
 
-    /** 加密后的账号密码或密钥密文。 */
+    /** 旧账号池兼容字段。 */
     private String secretCiphertext;
 
-    /** 加密后的补充备注密文。 */
+    /** 通用备注密文。 */
     private String noteCiphertext;
 
-    /** 账号摘要，用于防重复校验。 */
+    /** 旧账号池兼容摘要字段。 */
     private String accountDigest;
 
-    /** 账号状态，例如 AVAILABLE / ASSIGNED / DISABLED。 */
+    /** 旧单状态兼容字段，不再作为卡密池主业务状态来源。 */
     private String status;
+
+    /** 资源类型，区分卡密和历史账号。 */
+    private String resourceType;
+
+    /** 卡密正文密文。 */
+    private String cardKeyCiphertext;
+
+    /** 卡密摘要，用于同商品内防重复导入。 */
+    private String cardKeyDigest;
+
+    /** 售卖状态，表示是否已经卖出。 */
+    private String saleStatus;
+
+    /** 启用状态，表示当前卡密是否允许参与销售。 */
+    private String enableStatus;
 
     /** 已分配到的订单主键。 */
     private Long assignedOrderId;

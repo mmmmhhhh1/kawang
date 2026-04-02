@@ -6,7 +6,7 @@ import lombok.Data;
 
 /**
  * 订单实体。
- * 对应表 {@code shop_order}，保存下单快照、金额信息、买家信息与订单状态。
+ * 对应表 {@code shop_order}，保存下单快照、买家信息、查单哈希与订单状态。
  */
 @Data
 public class ShopOrder {
@@ -17,7 +17,7 @@ public class ShopOrder {
     /** 外部可见订单号。 */
     private String orderNo;
 
-    /** 绑定的会员主键，游客下单时为空。 */
+    /** 绑定会员主键，游客下单时为空。 */
     private Long userId;
 
     /** 商品主键。 */
@@ -38,16 +38,19 @@ public class ShopOrder {
     /** 买家姓名。 */
     private String buyerName;
 
-    /** 联系方式，用于游客查单与买家识别。 */
+    /** 联系方式。 */
     private String buyerContact;
+
+    /** 联系方式与查单密码组合后的唯一哈希。 */
+    private String lookupHash;
 
     /** 买家备注。 */
     private String buyerRemark;
 
-    /** 订单状态，例如 SUCCESS / CLOSED。 */
+    /** 订单状态。 */
     private String status;
 
-    /** 关闭订单的原因。 */
+    /** 关闭原因。 */
     private String closedReason;
 
     /** 关闭时间。 */
@@ -56,6 +59,6 @@ public class ShopOrder {
     /** 创建时间。 */
     private LocalDateTime createdAt;
 
-    /** 最后更新时间。 */
+    /** 更新时间。 */
     private LocalDateTime updatedAt;
 }

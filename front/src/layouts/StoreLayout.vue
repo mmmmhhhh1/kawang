@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, SwitchButton } from '@element-plus/icons-vue'
@@ -14,22 +14,46 @@ const navItems = [
   { to: '/query', label: '订单查询' },
 ]
 
-const petals = [
-  { left: '4%', top: '10%', size: '16px', delay: '0s', duration: '18s', drift: '42px', opacity: 0.52 },
-  { left: '14%', top: '26%', size: '12px', delay: '3s', duration: '22s', drift: '58px', opacity: 0.44 },
-  { left: '27%', top: '6%', size: '14px', delay: '1.4s', duration: '20s', drift: '50px', opacity: 0.5 },
-  { left: '38%', top: '18%', size: '10px', delay: '4s', duration: '24s', drift: '46px', opacity: 0.38 },
-  { left: '52%', top: '8%', size: '18px', delay: '2s', duration: '19s', drift: '64px', opacity: 0.48 },
-  { left: '63%', top: '30%', size: '13px', delay: '5.2s', duration: '23s', drift: '48px', opacity: 0.4 },
-  { left: '74%', top: '12%', size: '15px', delay: '2.6s', duration: '20s', drift: '54px', opacity: 0.46 },
-  { left: '84%', top: '24%', size: '11px', delay: '6.4s', duration: '26s', drift: '42px', opacity: 0.34 },
-  { left: '92%', top: '8%', size: '17px', delay: '1s', duration: '21s', drift: '60px', opacity: 0.5 },
-]
+const petals = Array.from({ length: 26 }, (_, index) => {
+  const sizes = ['10px', '12px', '14px', '16px', '18px', '20px']
+  const drifts = ['42px', '56px', '68px', '84px', '96px']
+  const durations = ['16s', '18s', '21s', '24s', '27s']
+  return {
+    left: `${(index * 9 + 3) % 98}%`,
+    top: `${(index * 11 + 4) % 36}%`,
+    size: sizes[index % sizes.length],
+    delay: `${(index % 7) * 1.2}s`,
+    duration: durations[index % durations.length],
+    drift: drifts[index % drifts.length],
+    opacity: (0.36 + (index % 5) * 0.1).toFixed(2),
+  }
+})
 
 const profile = memberProfileState
 const searchKeyword = ref('')
+const cursorPetals = ref<
+  Array<{
+    id: number
+    left: string
+    top: string
+    size: string
+    delay: string
+    duration: string
+    opacity: string
+    driftX: string
+    driftY: string
+    rotate: string
+    scale: string
+  }>
+>([])
 
 const profileInitial = computed(() => profile.value?.username.slice(0, 1).toUpperCase() ?? 'K')
+const pointerTimers = new Map<number, number>()
+
+let nextCursorPetalId = 0
+let lastTrailAt = 0
+let lastPointerX = -1000
+let lastPointerY = -1000
 
 function isActive(path: string) {
   if (path === '/') {
@@ -74,6 +98,63 @@ function handleLogout() {
   router.push('/')
 }
 
+function removeCursorPetal(id: number) {
+  cursorPetals.value = cursorPetals.value.filter((petal) => petal.id !== id)
+  const timer = pointerTimers.get(id)
+  if (timer) {
+    window.clearTimeout(timer)
+    pointerTimers.delete(id)
+  }
+}
+
+function spawnCursorTrail(clientX: number, clientY: number) {
+  const batch = Array.from({ length: 4 }, (_, index) => {
+    const id = nextCursorPetalId++
+    const size = 6.2 + Math.random() * 4.4
+    const lifetime = 1.12 + Math.random() * 0.34
+
+    return {
+      id,
+      left: `${clientX + (Math.random() - 0.5) * 14}px`,
+      top: `${clientY + (Math.random() - 0.5) * 10}px`,
+      size: `${size.toFixed(1)}px`,
+      delay: `${index * 0.03}s`,
+      duration: `${lifetime.toFixed(2)}s`,
+      opacity: (0.5 + Math.random() * 0.26).toFixed(2),
+      driftX: `${(-14 + Math.random() * 28).toFixed(1)}px`,
+      driftY: `${(12 + Math.random() * 18).toFixed(1)}px`,
+      rotate: `${(-46 + Math.random() * 92).toFixed(0)}deg`,
+      scale: (0.9 + Math.random() * 0.28).toFixed(2),
+    }
+  })
+
+  cursorPetals.value = [...cursorPetals.value, ...batch].slice(-56)
+
+  batch.forEach((petal) => {
+    const timer = window.setTimeout(() => removeCursorPetal(petal.id), 1850)
+    pointerTimers.set(petal.id, timer)
+  })
+}
+
+function handlePointerMove(event: PointerEvent) {
+  if (event.pointerType === 'touch') {
+    return
+  }
+
+  const now = performance.now()
+  const movedEnough =
+    Math.abs(event.clientX - lastPointerX) + Math.abs(event.clientY - lastPointerY) > 16
+
+  if (!movedEnough || now - lastTrailAt < 48) {
+    return
+  }
+
+  lastTrailAt = now
+  lastPointerX = event.clientX
+  lastPointerY = event.clientY
+  spawnCursorTrail(event.clientX, event.clientY)
+}
+
 watch(
   () => route.fullPath,
   () => {
@@ -82,7 +163,16 @@ watch(
   { immediate: true },
 )
 
-onMounted(syncProfile)
+onMounted(() => {
+  syncProfile()
+  window.addEventListener('pointermove', handlePointerMove, { passive: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointermove', handlePointerMove)
+  pointerTimers.forEach((timer) => window.clearTimeout(timer))
+  pointerTimers.clear()
+})
 </script>
 
 <template>
@@ -102,7 +192,27 @@ onMounted(syncProfile)
           animationDelay: petal.delay,
           animationDuration: petal.duration,
           '--petal-drift': petal.drift,
-          opacity: petal.opacity.toString(),
+          opacity: petal.opacity,
+        }"
+      ></span>
+    </div>
+    <div class="store-cursor-petal-layer">
+      <span
+        v-for="petal in cursorPetals"
+        :key="petal.id"
+        class="store-cursor-petal"
+        :style="{
+          left: petal.left,
+          top: petal.top,
+          width: petal.size,
+          height: petal.size,
+          animationDelay: petal.delay,
+          animationDuration: petal.duration,
+          opacity: petal.opacity,
+          '--cursor-petal-drift-x': petal.driftX,
+          '--cursor-petal-drift-y': petal.driftY,
+          '--cursor-petal-rotate': petal.rotate,
+          '--cursor-petal-scale': petal.scale,
         }"
       ></span>
     </div>

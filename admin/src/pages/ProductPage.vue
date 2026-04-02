@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { createProduct, getProducts, updateProduct, updateProductStatus, type ProductPayload, type ProductRecord } from '@/api/products'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  createProduct,
+  deleteProduct,
+  getProducts,
+  updateProduct,
+  updateProductStatus,
+  type ProductPayload,
+  type ProductRecord,
+} from '@/api/products'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -89,6 +97,28 @@ async function toggleStatus(row: ProductRecord) {
   }
 }
 
+async function removeProduct(row: ProductRecord) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除商品“${row.title}”吗？如果该商品已有历史订单，后端会拒绝删除。`,
+      '删除商品',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+      },
+    )
+    await deleteProduct(row.id)
+    ElMessage.success('商品已删除')
+    await loadProducts()
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
+    ElMessage.error(error?.response?.data?.message ?? '商品删除失败')
+  }
+}
+
 onMounted(loadProducts)
 </script>
 
@@ -97,7 +127,7 @@ onMounted(loadProducts)
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>商品主表，维护售价、描述、上下架和排序；库存与销量由账号池和订单联动。</p>
+          <p>维护商品基础信息、价格、上下架和排序。删除商品前，系统会校验该商品是否已有历史订单。</p>
           <h1>商品管理</h1>
         </div>
         <el-button type="primary" @click="openCreate">新建商品</el-button>
@@ -108,7 +138,7 @@ onMounted(loadProducts)
         <el-table-column prop="vendor" label="厂商" width="120" />
         <el-table-column prop="planName" label="套餐" width="140" />
         <el-table-column label="价格" width="120">
-          <template #default="{ row }">¥{{ row.price.toFixed(2) }}</template>
+          <template #default="{ row }">¥{{ Number(row.price).toFixed(2) }}</template>
         </el-table-column>
         <el-table-column prop="availableStock" label="库存" width="90" />
         <el-table-column prop="soldCount" label="已售" width="90" />
@@ -120,12 +150,13 @@ onMounted(loadProducts)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link :type="row.status === 'ACTIVE' ? 'warning' : 'success'" @click="toggleStatus(row)">
               {{ row.status === 'ACTIVE' ? '下架' : '上架' }}
             </el-button>
+            <el-button link type="danger" @click="removeProduct(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

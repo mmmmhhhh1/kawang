@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.ShopOrderMapper">
+
+    <sql id="orderColumns">
+        id, order_no, user_id, product_id, product_title_snapshot, quantity, unit_price, total_amount, buyer_name,
+        buyer_contact, lookup_hash, buyer_remark, status, closed_reason, closed_at, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="org.example.kah.entity.ShopOrder" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shop_order (
+            order_no, user_id, product_id, product_title_snapshot, quantity, unit_price, total_amount, buyer_name,
+            buyer_contact, lookup_hash, buyer_remark, status
+        ) VALUES (
+            #{orderNo}, #{userId}, #{productId}, #{productTitleSnapshot}, #{quantity}, #{unitPrice}, #{totalAmount}, #{buyerName},
+            #{buyerContact}, #{lookupHash}, #{buyerRemark}, #{status}
+        )
+    </insert>
+
+    <select id="findById" resultType="org.example.kah.entity.ShopOrder">
+        SELECT <include refid="orderColumns" />
+        FROM shop_order
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="lockById" resultType="org.example.kah.entity.ShopOrder">
+        SELECT <include refid="orderColumns" />
+        FROM shop_order
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <select id="countByLookupHash" resultType="long">
+        SELECT COUNT(*)
+        FROM shop_order
+        WHERE lookup_hash = #{lookupHash}
+    </select>
+
+    <select id="findPage" parameterType="map" resultType="org.example.kah.entity.ShopOrder">
+        SELECT <include refid="orderColumns" />
+        FROM shop_order
+        <where>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="productId != null">
+                AND product_id = #{productId}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    order_no LIKE CONCAT('%', #{keyword}, '%')
+                    OR buyer_contact LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+        ORDER BY id DESC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countPage" parameterType="map" resultType="long">
+        SELECT COUNT(*)
+        FROM shop_order
+        <where>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="productId != null">
+                AND product_id = #{productId}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    order_no LIKE CONCAT('%', #{keyword}, '%')
+                    OR buyer_contact LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+    </select>
+
+    <select id="findByContact" parameterType="map" resultType="org.example.kah.entity.ShopOrder">
+        SELECT <include refid="orderColumns" />
+        FROM shop_order
+        WHERE buyer_contact = #{buyerContact}
+        <choose>
+            <when test="lookupHash != null and lookupHash != ''">
+                AND lookup_hash = #{lookupHash}
+            </when>
+            <when test="orderNo != null and orderNo != ''">
+                AND lookup_hash IS NULL
+                AND order_no = #{orderNo}
+            </when>
+            <otherwise>
+                AND 1 = 0
+            </otherwise>
+        </choose>
+        ORDER BY id DESC
+    </select>
+
+    <select id="findByUserId" resultType="org.example.kah.entity.ShopOrder">
+        SELECT <include refid="orderColumns" />
+        FROM shop_order
+        WHERE user_id = #{userId}
+        ORDER BY id DESC
+    </select>
+
+    <select id="countByProductId" resultType="long">
+        SELECT COUNT(*)
+        FROM shop_order
+        WHERE product_id = #{productId}
+    </select>
+
+    <update id="close">
+        UPDATE shop_order
+        SET status = 'CLOSED',
+            closed_reason = #{reason},
+            closed_at = NOW()
+        WHERE id = #{id}
+    </update>
+</mapper>

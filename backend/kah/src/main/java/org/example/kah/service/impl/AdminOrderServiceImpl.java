@@ -3,28 +3,30 @@ package org.example.kah.service.impl;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.common.PageResponse;
 import org.example.kah.dto.admin.AdminOrderDetailView;
 import org.example.kah.dto.admin.AdminOrderItemView;
-import org.example.kah.entity.AccountStatus;
 import org.example.kah.entity.OrderStatus;
 import org.example.kah.entity.ProductAccount;
 import org.example.kah.entity.ShopOrder;
+import org.example.kah.entity.ShopOrderAccount;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.service.AdminOrderService;
 import org.example.kah.service.impl.base.AbstractCrudService;
+import org.example.kah.util.CryptoService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AdminOrderService} 的默认实现。
- * 负责后台订单分页查询、详情查看和关闭订单后的库存回滚。
+ * 负责后台订单分页查询、详情查看和关闭订单后的卡密回滚。
  */
 @Service
 @RequiredArgsConstructor
@@ -34,6 +36,7 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
     private final ShopOrderAccountMapper shopOrderAccountMapper;
     private final ProductAccountMapper productAccountMapper;
     private final ProductMapper productMapper;
+    private final CryptoService cryptoService;
 
     /**
      * 分页查询订单列表。
@@ -54,20 +57,20 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
     }
 
     /**
-     * 查询订单详情以及该订单绑定的脱敏账号快照。
+     * 查询订单详情以及该订单绑定的卡密列表。
      */
     @Override
     public AdminOrderDetailView detail(Long id) {
         ShopOrder order = requireById(id);
-        List<String> accounts = shopOrderAccountMapper.findByOrderId(id).stream()
-                .map(item -> item.getMaskedAccountSnapshot())
+        List<String> cardKeys = shopOrderAccountMapper.findByOrderId(id).stream()
+                .map(this::resolveDetailCardKey)
+                .filter(Objects::nonNull)
                 .toList();
-        return toDetailView(order, accounts);
+        return toDetailView(order, cardKeys);
     }
 
     /**
-     * 关闭成功订单并释放已分配账号。
-     * 这里会锁定订单和账号池记录，避免关闭过程中出现并发状态漂移。
+     * 关闭成功订单并释放已分配卡密。
      */
     @Override
     @Transactional
@@ -82,9 +85,7 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
 
         List<ProductAccount> accounts = productAccountMapper.lockByAssignedOrderId(id);
         for (ProductAccount account : accounts) {
-            if (AccountStatus.ASSIGNED.equals(account.getStatus())) {
-                productAccountMapper.release(account.getId());
-            }
+            productAccountMapper.release(account.getId());
         }
 
         shopOrderMapper.close(id, trim(reason));
@@ -129,9 +130,9 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
     }
 
     /**
-     * 将订单实体和账号快照组合成详情视图。
+     * 组装后台订单详情视图。
      */
-    private AdminOrderDetailView toDetailView(ShopOrder order, List<String> accounts) {
+    private AdminOrderDetailView toDetailView(ShopOrder order, List<String> cardKeys) {
         return new AdminOrderDetailView(
                 order.getId(),
                 order.getOrderNo(),
@@ -146,6 +147,20 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
                 order.getStatus(),
                 order.getClosedReason(),
                 order.getCreatedAt(),
-                accounts);
+                cardKeys);
+    }
+
+    /**
+     * 为后台详情页解析卡密正文。
+     * 新订单优先展示卡密快照，旧订单回退到历史脱敏快照。
+     */
+    private String resolveDetailCardKey(ShopOrderAccount account) {
+        if (account.getCardKeyCiphertextSnapshot() != null && !account.getCardKeyCiphertextSnapshot().isBlank()) {
+            return cryptoService.decrypt(account.getCardKeyCiphertextSnapshot());
+        }
+        if (account.getMaskedAccountSnapshot() != null && !account.getMaskedAccountSnapshot().isBlank()) {
+            return account.getMaskedAccountSnapshot();
+        }
+        return null;
     }
 }

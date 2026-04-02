@@ -45,3 +45,7 @@ export async function updateProductStatus(id: number, status: 'ACTIVE' | 'INACTI
   const response = await adminHttp.patch<ApiResponse<ProductRecord>>(`/products/${id}/status`, { status })
   return response.data.data
 }
+
+export async function deleteProduct(id: number) {
+  await adminHttp.delete<ApiResponse<void>>(`/products/${id}`)
+}

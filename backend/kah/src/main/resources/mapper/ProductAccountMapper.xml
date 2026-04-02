@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.ProductAccountMapper">
+
+    <sql id="joinedColumns">
+        pa.id, pa.product_id, p.title AS product_title, pa.account_name_masked, pa.account_ciphertext, pa.secret_ciphertext,
+        pa.note_ciphertext, pa.account_digest, pa.status, pa.resource_type, pa.card_key_ciphertext, pa.card_key_digest,
+        pa.sale_status, pa.enable_status, pa.assigned_order_id, pa.assigned_at, pa.created_at, pa.updated_at
+    </sql>
+
+    <sql id="baseColumns">
+        id, product_id, account_name_masked, account_ciphertext, secret_ciphertext, note_ciphertext, account_digest,
+        status, resource_type, card_key_ciphertext, card_key_digest, sale_status, enable_status,
+        assigned_order_id, assigned_at, created_at, updated_at
+    </sql>
+
+    <select id="findAllCardKeys" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="joinedColumns" />
+        FROM product_account pa
+        LEFT JOIN shop_product p ON p.id = pa.product_id
+        WHERE pa.resource_type = 'CARD_KEY'
+        ORDER BY pa.id DESC
+    </select>
+
+    <select id="findCardKeysByProductId" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="joinedColumns" />
+        FROM product_account pa
+        LEFT JOIN shop_product p ON p.id = pa.product_id
+        WHERE pa.resource_type = 'CARD_KEY'
+          AND pa.product_id = #{productId}
+        ORDER BY pa.id DESC
+    </select>
+
+    <select id="findById" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="baseColumns" />
+        FROM product_account
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="lockAvailableCardKeys" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="baseColumns" />
+        FROM product_account
+        WHERE product_id = #{productId}
+          AND resource_type = 'CARD_KEY'
+          AND sale_status = 'UNSOLD'
+          AND enable_status = 'ENABLED'
+        ORDER BY id ASC
+        LIMIT #{quantity}
+        FOR UPDATE
+    </select>
+
+    <select id="lockByAssignedOrderId" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="baseColumns" />
+        FROM product_account
+        WHERE assigned_order_id = #{orderId}
+        ORDER BY id ASC
+        FOR UPDATE
+    </select>
+
+    <insert id="insert" parameterType="org.example.kah.entity.ProductAccount" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO product_account (
+            product_id, account_name_masked, account_ciphertext, secret_ciphertext, note_ciphertext, account_digest,
+            status, resource_type, card_key_ciphertext, card_key_digest, sale_status, enable_status
+        ) VALUES (
+            #{productId}, #{accountNameMasked}, #{accountCiphertext}, #{secretCiphertext}, #{noteCiphertext}, #{accountDigest},
+            #{status}, #{resourceType}, #{cardKeyCiphertext}, #{cardKeyDigest}, #{saleStatus}, #{enableStatus}
+        )
+    </insert>
+
+    <select id="countByResourceType" resultType="long">
+        SELECT COUNT(*)
+        FROM product_account
+        WHERE resource_type = #{resourceType}
+    </select>
+
+    <select id="countByProductId" resultType="long">
+        SELECT COUNT(*)
+        FROM product_account
+        WHERE product_id = #{productId}
+    </select>
+
+    <update id="normalizeLegacyPool">
+        UPDATE product_account
+        SET resource_type = 'LEGACY_ACCOUNT',
+            sale_status = CASE WHEN assigned_order_id IS NULL THEN 'UNSOLD' ELSE 'SOLD' END,
+            enable_status = 'DISABLED',
+            status = 'DISABLED'
+        WHERE resource_type IS NULL OR resource_type &lt;&gt; 'CARD_KEY'
+    </update>
+
+    <update id="assignToOrder">
+        UPDATE product_account
+        SET sale_status = 'SOLD',
+            status = 'ASSIGNED',
+            assigned_order_id = #{orderId},
+            assigned_at = #{assignedAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="release">
+        UPDATE product_account
+        SET sale_status = 'UNSOLD',
+            status = CASE WHEN enable_status = 'ENABLED' THEN 'AVAILABLE' ELSE 'DISABLED' END,
+            assigned_order_id = NULL,
+            assigned_at = NULL
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateEnableStatus">
+        UPDATE product_account
+        SET enable_status = #{enableStatus},
+            status = CASE
+                WHEN sale_status = 'SOLD' THEN 'ASSIGNED'
+                WHEN #{enableStatus} = 'ENABLED' THEN 'AVAILABLE'
+                ELSE 'DISABLED'
+            END
+        WHERE id = #{id}
+    </update>
+
+    <update id="bulkDisableCardKeysByProduct">
+        UPDATE product_account
+        SET enable_status = 'DISABLED',
+            status = CASE WHEN sale_status = 'SOLD' THEN 'ASSIGNED' ELSE 'DISABLED' END
+        WHERE resource_type = 'CARD_KEY'
+          AND product_id = #{productId}
+          AND enable_status &lt;&gt; 'DISABLED'
+    </update>
+
+    <update id="bulkDisableAllCardKeys">
+        UPDATE product_account
+        SET enable_status = 'DISABLED',
+            status = CASE WHEN sale_status = 'SOLD' THEN 'ASSIGNED' ELSE 'DISABLED' END
+        WHERE resource_type = 'CARD_KEY'
+          AND enable_status &lt;&gt; 'DISABLED'
+    </update>
+
+    <update id="bulkEnableCardKeysByProduct">
+        UPDATE product_account
+        SET enable_status = 'ENABLED',
+            status = CASE WHEN sale_status = 'SOLD' THEN 'ASSIGNED' ELSE 'AVAILABLE' END
+        WHERE resource_type = 'CARD_KEY'
+          AND product_id = #{productId}
+          AND enable_status &lt;&gt; 'ENABLED'
+    </update>
+
+    <update id="bulkEnableAllCardKeys">
+        UPDATE product_account
+        SET enable_status = 'ENABLED',
+            status = CASE WHEN sale_status = 'SOLD' THEN 'ASSIGNED' ELSE 'AVAILABLE' END
+        WHERE resource_type = 'CARD_KEY'
+          AND enable_status &lt;&gt; 'ENABLED'
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM product_account
+        WHERE id = #{id}
+    </delete>
+
+    <delete id="deleteByProductId">
+        DELETE FROM product_account
+        WHERE product_id = #{productId}
+    </delete>
+</mapper>
