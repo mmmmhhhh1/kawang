@@ -47,3 +47,7 @@ export async function closeOrder(id: number, reason: string) {
   const response = await adminHttp.patch<ApiResponse<OrderDetail>>(`/orders/${id}/close`, { reason })
   return response.data.data
 }
+
+export async function deleteOrder(id: number) {
+  await adminHttp.delete<ApiResponse<null>>(`/orders/${id}`)
+}

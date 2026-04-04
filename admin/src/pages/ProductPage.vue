@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { adminProfileState, hasAdminPermission } from '@/api/auth'
 import {
   createProduct,
   deleteProduct,
@@ -27,6 +28,8 @@ const form = reactive<ProductPayload>({
   status: 'ACTIVE',
   sortOrder: 10,
 })
+
+const canDeleteProduct = computed(() => hasAdminPermission('DELETE_PRODUCT', adminProfileState.value))
 
 async function loadProducts() {
   loading.value = true
@@ -98,6 +101,10 @@ async function toggleStatus(row: ProductRecord) {
 }
 
 async function removeProduct(row: ProductRecord) {
+  if (!canDeleteProduct.value) {
+    return
+  }
+
   try {
     await ElMessageBox.confirm(
       `确定删除商品“${row.title}”吗？如果该商品已有历史订单，后端会拒绝删除。`,
@@ -127,7 +134,7 @@ onMounted(loadProducts)
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>维护商品基础信息、价格、上下架和排序。删除商品前，系统会校验该商品是否已有历史订单。</p>
+          <p>维护商品基础信息、价格、上下架和排序。删除商品按钮受管理员权限控制。</p>
           <h1>商品管理</h1>
         </div>
         <el-button type="primary" @click="openCreate">新建商品</el-button>
@@ -156,7 +163,7 @@ onMounted(loadProducts)
             <el-button link :type="row.status === 'ACTIVE' ? 'warning' : 'success'" @click="toggleStatus(row)">
               {{ row.status === 'ACTIVE' ? '下架' : '上架' }}
             </el-button>
-            <el-button link type="danger" @click="removeProduct(row)">删除</el-button>
+            <el-button v-if="canDeleteProduct" link type="danger" @click="removeProduct(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

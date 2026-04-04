@@ -1,54 +1,182 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Lock, UserFilled } from '@element-plus/icons-vue'
-import { registerMember } from '@/api/auth'
+import { Lock, Message, UserFilled } from '@element-plus/icons-vue'
+import { registerMember, registerMemberByEmail, sendEmailCode } from '@/api/auth'
+
+type RegisterMode = 'password' | 'email'
 
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
+const sendingCode = ref(false)
+const codeCountdown = ref(0)
+const mode = ref<RegisterMode>('password')
 
-const form = reactive({
+const passwordForm = reactive({
   username: '',
   password: '',
   confirmPassword: '',
 })
 
+const emailForm = reactive({
+  email: '',
+  code: '',
+  username: '',
+  password: '',
+  confirmPassword: '',
+})
+
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const codePattern = /^\d{6}$/
+const usernamePattern = /^[A-Za-z0-9_]{4,32}$/
+let timerId: number | null = null
+
 const passwordHint = computed(() => {
-  if (!form.password) {
+  const currentPassword = mode.value === 'password' ? passwordForm.password : emailForm.password
+  if (!currentPassword) {
     return '密码长度需在 6 到 64 位之间'
   }
-  if (form.password.length < 6) {
+  if (currentPassword.length < 6) {
     return '当前密码长度不足 6 位'
   }
   return '密码长度符合要求'
 })
 
-async function submit() {
-  if (!form.username.trim() || !form.password.trim()) {
-    ElMessage.warning('请先填写用户名和密码')
+function stopCountdown() {
+  if (timerId !== null) {
+    window.clearInterval(timerId)
+    timerId = null
+  }
+}
+
+function startCountdown() {
+  stopCountdown()
+  codeCountdown.value = 60
+  timerId = window.setInterval(() => {
+    if (codeCountdown.value <= 1) {
+      codeCountdown.value = 0
+      stopCountdown()
+      return
+    }
+    codeCountdown.value -= 1
+  }, 1000)
+}
+
+function redirectAfterRegister() {
+  router.push((route.query.redirect as string) || '/orders/me')
+}
+
+function validateUsername(username: string) {
+  if (!usernamePattern.test(username.trim())) {
+    ElMessage.warning('用户名需为 4-32 位字母、数字或下划线')
+    return false
+  }
+  return true
+}
+
+function validatePassword(password: string, confirmPassword: string) {
+  if (!password.trim()) {
+    ElMessage.warning('请输入密码')
+    return false
+  }
+  if (password.length < 6 || password.length > 64) {
+    ElMessage.warning('密码长度需在 6 到 64 位之间')
+    return false
+  }
+  if (password !== confirmPassword) {
+    ElMessage.warning('两次输入的密码不一致')
+    return false
+  }
+  return true
+}
+
+function validateEmail(email: string) {
+  if (!emailPattern.test(email.trim())) {
+    ElMessage.warning('请输入正确的邮箱地址')
+    return false
+  }
+  return true
+}
+
+function validatePasswordRegister() {
+  if (!validateUsername(passwordForm.username)) {
+    return false
+  }
+  return validatePassword(passwordForm.password, passwordForm.confirmPassword)
+}
+
+function validateEmailRegister() {
+  if (!validateEmail(emailForm.email)) {
+    return false
+  }
+  if (!codePattern.test(emailForm.code.trim())) {
+    ElMessage.warning('请输入 6 位数字验证码')
+    return false
+  }
+  if (!validateUsername(emailForm.username)) {
+    return false
+  }
+  return validatePassword(emailForm.password, emailForm.confirmPassword)
+}
+
+async function handleSendCode() {
+  if (sendingCode.value || codeCountdown.value > 0) {
     return
   }
-  if (form.password !== form.confirmPassword) {
-    ElMessage.warning('两次输入的密码不一致')
+  if (!validateEmail(emailForm.email)) {
+    return
+  }
+
+  sendingCode.value = true
+  try {
+    await sendEmailCode({
+      email: emailForm.email.trim(),
+      scene: 'register',
+    })
+    ElMessage.success('验证码已发送，请查收邮箱')
+    startCountdown()
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message ?? '验证码发送失败')
+  } finally {
+    sendingCode.value = false
+  }
+}
+
+async function submit() {
+  if (mode.value === 'password' && !validatePasswordRegister()) {
+    return
+  }
+  if (mode.value === 'email' && !validateEmailRegister()) {
     return
   }
 
   loading.value = true
   try {
-    await registerMember({
-      username: form.username.trim(),
-      password: form.password,
-    })
+    if (mode.value === 'password') {
+      await registerMember({
+        username: passwordForm.username.trim(),
+        password: passwordForm.password,
+      })
+    } else {
+      await registerMemberByEmail({
+        email: emailForm.email.trim(),
+        code: emailForm.code.trim(),
+        username: emailForm.username.trim(),
+        password: emailForm.password,
+      })
+    }
     ElMessage.success('注册成功，已自动登录')
-    router.push((route.query.redirect as string) || '/orders/me')
+    redirectAfterRegister()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '注册失败')
   } finally {
     loading.value = false
   }
 }
+
+onBeforeUnmount(stopCountdown)
 </script>
 
 <template>
@@ -61,15 +189,15 @@ async function submit() {
         <ul class="auth-feature-list">
           <li>
             <el-icon><UserFilled /></el-icon>
-            用户名支持字母、数字和下划线
+            保留原有用户名密码注册
+          </li>
+          <li>
+            <el-icon><Message /></el-icon>
+            支持邮箱验证码注册
           </li>
           <li>
             <el-icon><Lock /></el-icon>
-            密码由后端统一哈希保存
-          </li>
-          <li>
-            <el-icon><Lock /></el-icon>
-            注册后可直接查看我的订单
+            注册成功后可直接查看我的订单
           </li>
         </ul>
       </article>
@@ -77,20 +205,73 @@ async function submit() {
       <article class="auth-form-card">
         <div class="auth-form-card__head auth-form-card__head--center">
           <span class="auth-card-title">创建账号</span>
-          <h2>开始使用</h2>
-          <p>只需要一个用户名和密码，就可以获得完整的下单与查单能力。</p>
+          <h2>{{ mode === 'password' ? '普通注册' : '邮箱验证注册' }}</h2>
+          <p>
+            {{
+              mode === 'password'
+                ? '使用用户名和密码快速创建会员账号。'
+                : '先完成邮箱验证码校验，再创建用户名和密码。'
+            }}
+          </p>
         </div>
 
-        <el-form label-position="top">
+        <div class="auth-mode-switch" role="tablist" aria-label="注册方式切换">
+          <button
+            class="auth-mode-switch__item"
+            :class="{ 'is-active': mode === 'password' }"
+            type="button"
+            @click="mode = 'password'"
+          >
+            普通注册
+          </button>
+          <button
+            class="auth-mode-switch__item"
+            :class="{ 'is-active': mode === 'email' }"
+            type="button"
+            @click="mode = 'email'"
+          >
+            邮箱验证注册
+          </button>
+        </div>
+
+        <el-form v-if="mode === 'password'" label-position="top">
           <el-form-item label="用户名">
-            <el-input v-model="form.username" maxlength="32" placeholder="例如 kawang_user" />
+            <el-input v-model="passwordForm.username" maxlength="32" placeholder="例如 kawang_user" />
           </el-form-item>
           <el-form-item label="密码">
-            <el-input v-model="form.password" type="password" show-password placeholder="至少 6 位" />
+            <el-input v-model="passwordForm.password" type="password" show-password placeholder="至少 6 位" />
           </el-form-item>
           <el-form-item label="确认密码">
             <el-input
-              v-model="form.confirmPassword"
+              v-model="passwordForm.confirmPassword"
+              type="password"
+              show-password
+              placeholder="再次输入密码"
+            />
+          </el-form-item>
+        </el-form>
+
+        <el-form v-else label-position="top">
+          <el-form-item label="邮箱">
+            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入邮箱地址" />
+          </el-form-item>
+          <el-form-item label="邮箱验证码">
+            <div class="auth-code-row">
+              <el-input class="auth-code-input" v-model="emailForm.code" maxlength="6" placeholder="请输入 6 位验证码" />
+              <el-button class="auth-code-button" :disabled="sendingCode || codeCountdown > 0" @click="handleSendCode">
+                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s 后重试` : '发送验证码' }}
+              </el-button>
+            </div>
+          </el-form-item>
+          <el-form-item label="用户名">
+            <el-input v-model="emailForm.username" maxlength="32" placeholder="例如 kawang_user" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="emailForm.password" type="password" show-password placeholder="至少 6 位" />
+          </el-form-item>
+          <el-form-item label="确认密码">
+            <el-input
+              v-model="emailForm.confirmPassword"
               type="password"
               show-password
               placeholder="再次输入密码"
@@ -197,6 +378,48 @@ async function submit() {
   line-height: 1.8;
 }
 
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
+
+.auth-mode-switch__item {
+  min-height: 42px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.auth-mode-switch__item.is-active {
+  background: rgba(255, 255, 255, 0.24);
+  color: var(--text-primary);
+  box-shadow: 0 12px 20px rgba(120, 138, 160, 0.16);
+}
+
+.auth-code-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.auth-code-input {
+  flex: 1;
+}
+
+.auth-code-button {
+  min-width: 132px;
+}
+
 .auth-submit {
   width: 100%;
   margin-top: 18px;
@@ -219,6 +442,21 @@ async function submit() {
 @media (max-width: 920px) {
   .auth-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-mode-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-code-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .auth-code-button {
+    width: 100%;
   }
 }
 </style>

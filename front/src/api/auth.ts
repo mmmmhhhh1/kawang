@@ -10,16 +10,36 @@ import {
 
 export type MemberProfile = {
   id: number
-  username: string
+  username?: string | null
+  email?: string | null
 }
 
-type MemberAuthResponse = {
+export type MemberAuthResponse = {
   token: string
   tokenType: string
   profile: MemberProfile
 }
 
-type MemberCredentials = {
+export type MemberCredentials = {
+  username: string
+  password: string
+}
+
+export type EmailCodeScene = 'login' | 'register'
+
+export type EmailCodePayload = {
+  email: string
+  scene: EmailCodeScene
+}
+
+export type EmailLoginPayload = {
+  email: string
+  code: string
+}
+
+export type EmailRegisterPayload = {
+  email: string
+  code: string
   username: string
   password: string
 }
@@ -52,6 +72,20 @@ export async function registerMember(payload: MemberCredentials) {
 
 export async function loginMember(payload: MemberCredentials) {
   const response = await http.post<ApiResponse<MemberAuthResponse>>('/auth/login', payload)
+  return persistSession(response.data.data)
+}
+
+export async function sendEmailCode(payload: EmailCodePayload) {
+  await http.post<ApiResponse<void>>('/auth/mail/send-code', payload)
+}
+
+export async function loginMemberByEmail(payload: EmailLoginPayload) {
+  const response = await http.post<ApiResponse<MemberAuthResponse>>('/auth/mail/login', payload)
+  return persistSession(response.data.data)
+}
+
+export async function registerMemberByEmail(payload: EmailRegisterPayload) {
+  const response = await http.post<ApiResponse<MemberAuthResponse>>('/auth/mail/register', payload)
   return persistSession(response.data.data)
 }
 

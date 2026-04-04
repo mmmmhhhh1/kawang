@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getStoredProfile, hasAdminPermission, type AdminPermission } from '@/api/auth'
 import { getStoredToken } from '@/api/http'
 import LoginPage from '@/pages/LoginPage.vue'
 import AdminLayout from '@/pages/AdminLayout.vue'
@@ -6,6 +7,8 @@ import ProductPage from '@/pages/ProductPage.vue'
 import AccountPage from '@/pages/AccountPage.vue'
 import OrderPage from '@/pages/OrderPage.vue'
 import NoticePage from '@/pages/NoticePage.vue'
+import UserPage from '@/pages/UserPage.vue'
+import AdminUserPage from '@/pages/AdminUserPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,6 +28,13 @@ const router = createRouter({
         { path: 'products', name: 'products', component: ProductPage, meta: { requiresAuth: true } },
         { path: 'accounts', name: 'accounts', component: AccountPage, meta: { requiresAuth: true } },
         { path: 'orders', name: 'orders', component: OrderPage, meta: { requiresAuth: true } },
+        { path: 'users', name: 'users', component: UserPage, meta: { requiresAuth: true } },
+        {
+          path: 'admins',
+          name: 'admins',
+          component: AdminUserPage,
+          meta: { requiresAuth: true, requiredPermission: 'CREATE_ADMIN' },
+        },
         { path: 'notices', name: 'notices', component: NoticePage, meta: { requiresAuth: true } },
       ],
     },
@@ -37,6 +47,12 @@ router.beforeEach((to) => {
     return { name: 'login' }
   }
   if (to.name === 'login' && token) {
+    return { name: 'products' }
+  }
+
+  const requiredPermission = to.meta.requiredPermission as AdminPermission | undefined
+  const profile = getStoredProfile()
+  if (requiredPermission && profile && !hasAdminPermission(requiredPermission, profile)) {
     return { name: 'products' }
   }
   return true

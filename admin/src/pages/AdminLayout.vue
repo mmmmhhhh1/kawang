@@ -1,24 +1,46 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bell, Box, Goods, List, SwitchButton } from '@element-plus/icons-vue'
+import { Bell, Box, Goods, List, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { fetchMe, getStoredProfile, logout, type AdminProfile } from '@/api/auth'
+import {
+  adminProfileState,
+  fetchMe,
+  hasAdminPermission,
+  logout,
+  type AdminPermission,
+} from '@/api/auth'
 
 const router = useRouter()
 const route = useRoute()
-const profile = ref<AdminProfile | null>(getStoredProfile())
+const profile = adminProfileState
 
-const menuItems = [
+const menuItems: Array<{
+  index: string
+  label: string
+  icon: any
+  permission?: AdminPermission
+}> = [
   { index: '/products', label: '商品管理', icon: Goods },
-  { index: '/accounts', label: '账号池', icon: Box },
+  { index: '/accounts', label: '卡密池管理', icon: Box },
   { index: '/orders', label: '订单管理', icon: List },
+  { index: '/users', label: '会员管理', icon: UserFilled },
+  { index: '/admins', label: '管理员管理', icon: Setting, permission: 'CREATE_ADMIN' },
   { index: '/notices', label: '公告管理', icon: Bell },
 ]
 
+const visibleMenuItems = computed(() =>
+  menuItems.filter((item) => !item.permission || hasAdminPermission(item.permission, profile.value)),
+)
+
+const currentMenuLabel = computed(() => {
+  const current = menuItems.find((item) => route.path.startsWith(item.index))
+  return current?.label ?? '管理台'
+})
+
 async function syncProfile() {
   try {
-    profile.value = await fetchMe()
+    await fetchMe()
   } catch {
     logoutAndRedirect()
   }
@@ -29,6 +51,17 @@ function logoutAndRedirect() {
   ElMessage.success('已退出登录')
   router.replace('/login')
 }
+
+watch(
+  () => [route.path, profile.value],
+  () => {
+    const current = menuItems.find((item) => route.path.startsWith(item.index))
+    if (current?.permission && profile.value && !hasAdminPermission(current.permission, profile.value)) {
+      router.replace('/products')
+    }
+  },
+  { immediate: true },
+)
 
 onMounted(syncProfile)
 </script>
@@ -49,7 +82,7 @@ onMounted(syncProfile)
         active-text-color="#ffffff"
         router
       >
-        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
+        <el-menu-item v-for="item in visibleMenuItems" :key="item.index" :index="item.index">
           <el-icon><component :is="item.icon" /></el-icon>
           <span>{{ item.label }}</span>
         </el-menu-item>
@@ -60,12 +93,13 @@ onMounted(syncProfile)
       <header class="layout-header">
         <div>
           <p class="muted">当前页面</p>
-          <h2>{{ menuItems.find((item) => route.path.startsWith(item.index))?.label ?? '管理台' }}</h2>
+          <h2>{{ currentMenuLabel }}</h2>
         </div>
         <div class="header-actions">
           <div class="profile-chip">
             <strong>{{ profile?.displayName ?? '管理员' }}</strong>
             <span>{{ profile?.username ?? '-' }}</span>
+            <small>{{ profile?.isSuperAdmin ? '最高权限管理员' : '普通管理员' }}</small>
           </div>
           <el-button plain @click="logoutAndRedirect">
             <el-icon><SwitchButton /></el-icon>
@@ -156,7 +190,8 @@ onMounted(syncProfile)
 }
 
 .profile-chip strong,
-.profile-chip span {
+.profile-chip span,
+.profile-chip small {
   display: block;
 }
 
@@ -164,6 +199,12 @@ onMounted(syncProfile)
   margin-top: 4px;
   color: #697b8c;
   font-size: 13px;
+}
+
+.profile-chip small {
+  margin-top: 4px;
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .content {

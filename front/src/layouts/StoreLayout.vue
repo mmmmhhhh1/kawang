@@ -47,7 +47,26 @@ const cursorPetals = ref<
   }>
 >([])
 
-const profileInitial = computed(() => profile.value?.username.slice(0, 1).toUpperCase() ?? 'K')
+function normalizeProfileText(value?: string | null) {
+  const text = value?.trim()
+  return text ? text : null
+}
+
+const profileUsername = computed(() => normalizeProfileText(profile.value?.username))
+const profileEmail = computed(() => normalizeProfileText(profile.value?.email))
+const profilePrimary = computed(() => profileUsername.value ?? profileEmail.value ?? '会员')
+const profileSecondary = computed(() => {
+  if (profileUsername.value && profileEmail.value) {
+    return profileEmail.value
+  }
+  if (profileEmail.value) {
+    return null
+  }
+  return profileUsername.value ? '我的订单' : null
+})
+const profileInitial = computed(() =>
+  (profileUsername.value ?? profileEmail.value ?? 'K').slice(0, 1).toUpperCase(),
+)
 const pointerTimers = new Map<number, number>()
 
 let nextCursorPetalId = 0
@@ -255,8 +274,8 @@ onBeforeUnmount(() => {
           <button class="profile-chip" type="button" @click="router.push('/orders/me')">
             <span class="profile-chip__avatar">{{ profileInitial }}</span>
             <span class="profile-chip__meta">
-              <strong>{{ profile.username }}</strong>
-              <em>我的订单</em>
+              <strong>{{ profilePrimary }}</strong>
+              <em v-if="profileSecondary">{{ profileSecondary }}</em>
             </span>
           </button>
           <button class="topbar-icon-button" type="button" @click="handleLogout">

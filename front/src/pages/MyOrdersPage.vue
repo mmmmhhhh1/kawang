@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Document, DocumentCopy, UserFilled } from '@element-plus/icons-vue'
@@ -13,6 +13,14 @@ const orders = ref<OrderRecord[]>([])
 const totalAmount = computed(() => orders.value.reduce((sum, item) => sum + Number(item.totalAmount ?? 0), 0))
 const totalQuantity = computed(() => orders.value.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0))
 const totalCardKeys = computed(() => orders.value.reduce((sum, item) => sum + (item.cardKeys?.length ?? 0), 0))
+
+function normalizeProfileText(value?: string | null) {
+  const text = value?.trim()
+  return text ? text : null
+}
+
+const displayUsername = computed(() => normalizeProfileText(profile.value?.username))
+const displayEmail = computed(() => normalizeProfileText(profile.value?.email))
 
 function formatEnableStatus(status: CardKeyRecord['enableStatus']) {
   return status === 'DISABLED' ? '已停用' : '可用'
@@ -63,7 +71,11 @@ onMounted(loadOrders)
       <div class="member-summary">
         <article class="member-summary__item">
           <span>当前账号</span>
-          <strong>{{ profile?.username ?? '-' }}</strong>
+          <div class="member-summary__identity">
+            <strong v-if="displayUsername">{{ displayUsername }}</strong>
+            <small v-if="displayEmail">{{ displayEmail }}</small>
+            <strong v-if="!displayUsername && !displayEmail">-</strong>
+          </div>
         </article>
         <article class="member-summary__item">
           <span>订单数量</span>
@@ -210,6 +222,23 @@ onMounted(loadOrders)
 .member-summary__item strong {
   margin-top: 8px;
   font-size: 24px;
+}
+
+.member-summary__identity {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.member-summary__identity strong {
+  margin-top: 0;
+}
+
+.member-summary__identity small {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-all;
 }
 
 .member-orders-grid {

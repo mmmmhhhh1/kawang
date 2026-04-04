@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { closeOrder, getOrderDetail, getOrders, type OrderDetail, type OrderRecord } from '@/api/orders'
+import { adminProfileState, hasAdminPermission } from '@/api/auth'
+import {
+  closeOrder,
+  deleteOrder,
+  getOrderDetail,
+  getOrders,
+  type OrderDetail,
+  type OrderRecord,
+} from '@/api/orders'
 import { getProducts, type ProductRecord } from '@/api/products'
 
 const loading = ref(false)
@@ -18,6 +26,8 @@ const query = reactive({
   productId: undefined as number | undefined,
   keyword: '',
 })
+
+const canDeleteOrder = computed(() => hasAdminPermission('DELETE_ORDER', adminProfileState.value))
 
 function formatMoney(value: number) {
   return `¥${value.toFixed(2)}`
@@ -70,6 +80,32 @@ async function handleClose(row: OrderRecord) {
   }
 }
 
+async function handleDelete(row: OrderRecord) {
+  if (!canDeleteOrder.value) {
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(`确定删除订单“${row.orderNo}”吗？`, '删除订单', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+    })
+    await deleteOrder(row.id)
+    ElMessage.success('订单已删除')
+    if (detail.value?.id === row.id) {
+      detailVisible.value = false
+      detail.value = null
+    }
+    await loadOrders()
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
+    ElMessage.error(error?.response?.data?.message ?? '删除订单失败')
+  }
+}
+
 onMounted(async () => {
   await loadProducts()
   await loadOrders()
@@ -81,7 +117,7 @@ onMounted(async () => {
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>订单创建后默认成功。关闭订单会释放已分配卡密并回滚商品库存与销量。</p>
+          <p>订单创建后默认成功。关闭订单会释放已分配卡密并回滚库存；删除订单按钮受管理员权限控制。</p>
           <h1>订单管理</h1>
         </div>
       </div>
@@ -113,10 +149,11 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="180" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row.id)">详情</el-button>
             <el-button v-if="row.status === 'SUCCESS'" link type="warning" @click="handleClose(row)">关闭</el-button>
+            <el-button v-if="canDeleteOrder" link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -149,9 +186,10 @@ onMounted(async () => {
 
         <div style="margin-top: 20px;">
           <h3>已分配卡密</h3>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <div v-if="detail.cardKeys.length" style="display: flex; gap: 8px; flex-wrap: wrap;">
             <el-tag v-for="item in detail.cardKeys" :key="item" type="info" effect="plain">{{ item }}</el-tag>
           </div>
+          <el-empty v-else description="该订单没有可展示的卡密" />
         </div>
       </template>
     </el-drawer>
