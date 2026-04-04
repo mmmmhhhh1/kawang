@@ -1,6 +1,8 @@
 package org.example.kah.mapper;
 
 import java.time.LocalDateTime;
+
+import jakarta.validation.constraints.Email;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -23,7 +25,7 @@ public interface MemberUserMapper {
      * @return 会员实体
      */
     @Select("""
-            SELECT id, username, password_hash, status, last_login_at, created_at, updated_at
+            SELECT id, username,mail, password_hash, status, last_login_at, created_at, updated_at
             FROM member_user
             WHERE id = #{id}
             LIMIT 1
@@ -37,7 +39,7 @@ public interface MemberUserMapper {
      * @return 会员实体
      */
     @Select("""
-            SELECT id, username, password_hash, status, last_login_at, created_at, updated_at
+            SELECT id, username,mail, password_hash, status, last_login_at, created_at, updated_at
             FROM member_user
             WHERE username = #{username}
             LIMIT 1
@@ -51,8 +53,8 @@ public interface MemberUserMapper {
      * @return 影响行数
      */
     @Insert("""
-            INSERT INTO member_user (username, password_hash, status)
-            VALUES (#{username}, #{passwordHash}, #{status})
+            INSERT INTO member_user (username, password_hash, status,mail)
+            VALUES (#{username}, #{passwordHash}, #{status},#{mail})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(MemberUser memberUser);
@@ -70,4 +72,11 @@ public interface MemberUserMapper {
             WHERE id = #{id}
             """)
     int updateLastLoginAt(@Param("id") Long id, @Param("loginAt") LocalDateTime loginAt);
+   @Select("""
+    SELECT id, username, mail,password_hash, status, last_login_at, created_at, updated_at
+            FROM member_user
+            WHERE mail = #{email}
+            LIMIT 1
+""")
+    MemberUser findByEmail(@Email String email);
 }

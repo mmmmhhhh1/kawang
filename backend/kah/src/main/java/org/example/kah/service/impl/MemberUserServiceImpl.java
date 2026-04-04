@@ -68,7 +68,7 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
     @Override
     public MemberProfileView me(AuthenticatedUser currentUser) {
         MemberUser memberUser = requireById(currentUser.userId());
-        return new MemberProfileView(memberUser.getId(), memberUser.getUsername());
+        return new MemberProfileView(memberUser.getId(), memberUser.getUsername(),memberUser.getMail());
     }
 
     /**
@@ -94,6 +94,6 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         return new MemberAuthResponse(
                 jwtService.createMemberToken(memberUser),
                 "Bearer",
-                new MemberProfileView(memberUser.getId(), memberUser.getUsername()));
+                new MemberProfileView(memberUser.getId(), memberUser.getUsername(),memberUser.getMail()));
     }
 }

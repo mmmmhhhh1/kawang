@@ -13,6 +13,8 @@ public class MemberUser {
     /** 会员主键。 */
     private Long id;
 
+    /** 会员邮箱*/
+    private String mail;
     /** 会员用户名。 */
     private String username;
 
@@ -30,4 +32,5 @@ public class MemberUser {
 
     /** 最后更新时间。 */
     private LocalDateTime updatedAt;
+
 }
