@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 启动初始化器。
- * 用于同步管理员账号，并在没有卡密池数据时补充演示卡密。
+ * 用于同步默认管理员账号，并在卡密池为空时补充演示卡密。
  */
 @Component
 @RequiredArgsConstructor
@@ -50,7 +50,7 @@ public class AdminBootstrapService implements ApplicationRunner {
     }
 
     /**
-     * 同步后台管理员账号。
+     * 同步默认后台管理员账号，并强制标记为最高权限管理员。
      */
     private void syncAdminUser() {
         AdminUser existing = adminUserMapper.findByUsername(securityProperties.admin().username());
@@ -60,6 +60,7 @@ public class AdminBootstrapService implements ApplicationRunner {
             adminUser.setPasswordHash(passwordEncoder.encode(securityProperties.admin().password()));
             adminUser.setStatus(AdminStatus.ACTIVE);
             adminUser.setDisplayName(securityProperties.admin().displayName());
+            adminUser.setIsSuperAdmin(true);
             adminUserMapper.insert(adminUser);
             return;
         }
@@ -67,6 +68,7 @@ public class AdminBootstrapService implements ApplicationRunner {
         existing.setPasswordHash(passwordEncoder.encode(securityProperties.admin().password()));
         existing.setStatus(AdminStatus.ACTIVE);
         existing.setDisplayName(securityProperties.admin().displayName());
+        existing.setIsSuperAdmin(true);
         adminUserMapper.updateProfile(existing);
     }
 

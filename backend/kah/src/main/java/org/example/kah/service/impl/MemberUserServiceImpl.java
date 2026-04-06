@@ -19,7 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
- * {@link MemberUserService} 的默认实现。
+ * {@link MemberUserService} 默认实现。
  * 负责会员注册、登录以及当前会员资料读取。
  */
 @Service
@@ -40,10 +40,13 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
             throw new BusinessException(ErrorCode.BAD_REQUEST, "用户名已存在");
         }
 
+        LocalDateTime now = LocalDateTime.now();
         MemberUser memberUser = new MemberUser();
         memberUser.setUsername(username);
         memberUser.setPasswordHash(passwordEncoder.encode(request.password()));
         memberUser.setStatus(MemberStatus.ACTIVE);
+        memberUser.setLastLoginAt(now);
+        memberUser.setLastSeenAt(now);
         memberUserMapper.insert(memberUser);
         return toAuthResponse(memberUser);
     }
@@ -58,17 +61,22 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
             throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
         }
         require(MemberStatus.ACTIVE.equals(memberUser.getStatus()), ErrorCode.FORBIDDEN, "账号已被禁用");
-        memberUserMapper.updateLastLoginAt(memberUser.getId(), LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        memberUserMapper.updateLoginState(memberUser.getId(), now, now);
+        memberUser.setLastLoginAt(now);
+        memberUser.setLastSeenAt(now);
         return toAuthResponse(memberUser);
     }
 
     /**
-     * 读取当前登录会员资料。
+     * 读取当前登录会员资料，并刷新上次活跃时间。
      */
     @Override
     public MemberProfileView me(AuthenticatedUser currentUser) {
         MemberUser memberUser = requireById(currentUser.userId());
-        return new MemberProfileView(memberUser.getId(), memberUser.getUsername(),memberUser.getMail());
+        LocalDateTime now = LocalDateTime.now();
+        memberUserMapper.updateLastSeenAt(memberUser.getId(), now);
+        return new MemberProfileView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail());
     }
 
     /**
@@ -94,6 +102,6 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         return new MemberAuthResponse(
                 jwtService.createMemberToken(memberUser),
                 "Bearer",
-                new MemberProfileView(memberUser.getId(), memberUser.getUsername(),memberUser.getMail()));
+                new MemberProfileView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail()));
     }
 }

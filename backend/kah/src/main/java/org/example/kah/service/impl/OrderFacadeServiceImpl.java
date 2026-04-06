@@ -20,6 +20,7 @@ import org.example.kah.entity.ProductStatus;
 import org.example.kah.entity.ShopOrder;
 import org.example.kah.entity.ShopOrderAccount;
 import org.example.kah.entity.ShopProduct;
+import org.example.kah.mapper.MemberUserMapper;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
@@ -35,7 +36,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link OrderFacadeService} 的默认实现。
+ * {@link OrderFacadeService} 默认实现。
  * 负责前台下单事务、游客查单以及会员订单查询。
  */
 @Service
@@ -48,6 +49,7 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     private final ShopOrderAccountMapper shopOrderAccountMapper;
     private final OrderNumberGenerator orderNumberGenerator;
     private final CryptoService cryptoService;
+    private final MemberUserMapper memberUserMapper;
 
     /**
      * 创建订单并分配卡密。
@@ -80,7 +82,7 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
         order.setOrderNo(orderNumberGenerator.next());
         order.setUserId(currentUser == null ? null : currentUser.userId());
         order.setProductId(product.getId());
-        order.setProductTitleSnapshot(product.getTitle() + " · " + product.getPlanName());
+        order.setProductTitleSnapshot(product.getTitle() + " / " + product.getPlanName());
         order.setQuantity(quantity);
         order.setUnitPrice(product.getPrice());
         order.setTotalAmount(product.getPrice().multiply(BigDecimal.valueOf(quantity)));
@@ -95,9 +97,9 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
             throw new BusinessException(ErrorCode.BAD_REQUEST, "查单密码已被占用，请重新输入");
         }
 
-        LocalDateTime assignedAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
         for (ProductAccount cardKey : cardKeys) {
-            productAccountMapper.assignToOrder(cardKey.getId(), order.getId(), assignedAt);
+            productAccountMapper.assignToOrder(cardKey.getId(), order.getId(), now);
             ShopOrderAccount orderAccount = new ShopOrderAccount();
             orderAccount.setOrderId(order.getId());
             orderAccount.setAccountId(cardKey.getId());
@@ -106,6 +108,9 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
             shopOrderAccountMapper.insert(orderAccount);
         }
 
+        if (currentUser != null) {
+            memberUserMapper.updateLastSeenAt(currentUser.userId(), now);
+        }
         productMapper.syncStats();
         return new OrderCreatedResponse(
                 order.getOrderNo(),
@@ -139,10 +144,11 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     }
 
     /**
-     * 查询会员已绑定订单。
+     * 查询会员已绑定订单，并刷新上次活跃时间。
      */
     @Override
     public List<OrderQueryView> listByUser(Long userId) {
+        memberUserMapper.updateLastSeenAt(userId, LocalDateTime.now());
         return shopOrderMapper.findByUserId(userId).stream().map(this::toView).toList();
     }
 

@@ -116,4 +116,9 @@
             closed_at = NOW()
         WHERE id = #{id}
     </update>
+
+    <delete id="deleteById">
+        DELETE FROM shop_order
+        WHERE id = #{id}
+    </delete>
 </mapper>

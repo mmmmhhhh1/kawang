@@ -20,10 +20,6 @@ function statusLabel(status: MemberListItem['status']) {
   return status === 'ACTIVE' ? '正常' : '已停用'
 }
 
-function onlineLabel(isOnline: boolean) {
-  return isOnline ? '在线' : '离线'
-}
-
 function timeText(value?: string | null) {
   return value || '-'
 }
@@ -85,7 +81,7 @@ onMounted(loadMembers)
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>查看会员列表、在线状态、最近活跃，并在具备权限时直接启用或停用会员账号。</p>
+          <p>查看会员列表、最近登录和上次活跃时间，并在具备权限时直接启用或停用会员账号。</p>
           <h1>会员管理</h1>
         </div>
       </div>
@@ -104,13 +100,11 @@ onMounted(loadMembers)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="在线状态" width="120">
-          <template #default="{ row }">
-            <el-tag :type="row.isOnline ? 'success' : 'info'">{{ onlineLabel(row.isOnline) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="最近活跃" min-width="180">
+        <el-table-column label="上次活跃时间" min-width="180">
           <template #default="{ row }">{{ timeText(row.lastSeenAt) }}</template>
+        </el-table-column>
+        <el-table-column label="最近登录时间" min-width="180">
+          <template #default="{ row }">{{ timeText(row.lastLoginAt) }}</template>
         </el-table-column>
         <el-table-column prop="createdAt" label="注册时间" min-width="180" />
         <el-table-column label="操作" width="220" fixed="right">
@@ -136,9 +130,8 @@ onMounted(loadMembers)
             <el-descriptions-item label="用户名">{{ displayText(detail.username) }}</el-descriptions-item>
             <el-descriptions-item label="邮箱">{{ displayText(detail.email) }}</el-descriptions-item>
             <el-descriptions-item label="账号状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
-            <el-descriptions-item label="在线状态">{{ onlineLabel(detail.isOnline) }}</el-descriptions-item>
-            <el-descriptions-item label="最近活跃">{{ timeText(detail.lastSeenAt) }}</el-descriptions-item>
-            <el-descriptions-item label="最近登录">{{ timeText(detail.lastLoginAt) }}</el-descriptions-item>
+            <el-descriptions-item label="上次活跃时间">{{ timeText(detail.lastSeenAt) }}</el-descriptions-item>
+            <el-descriptions-item label="最近登录时间">{{ timeText(detail.lastLoginAt) }}</el-descriptions-item>
             <el-descriptions-item label="注册时间">{{ timeText(detail.createdAt) }}</el-descriptions-item>
             <el-descriptions-item label="更新时间">{{ timeText(detail.updatedAt) }}</el-descriptions-item>
           </el-descriptions>
@@ -163,7 +156,7 @@ onMounted(loadMembers)
 
                 <div class="member-order-card__meta">
                   <span>数量：{{ order.quantity }}</span>
-                  <span>金额：¥{{ Number(order.totalAmount).toFixed(2) }}</span>
+                  <span>金额：￥{{ Number(order.totalAmount).toFixed(2) }}</span>
                   <span>联系方式：{{ order.buyerContact }}</span>
                   <span>下单时间：{{ order.createdAt }}</span>
                 </div>

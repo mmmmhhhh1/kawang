@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.MemberUserMapper">
+
+    <sql id="memberColumns">
+        id, username, mail, password_hash, status, last_login_at, last_seen_at, created_at, updated_at
+    </sql>
+
+    <select id="findById" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByUsername" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        WHERE username = #{username}
+        LIMIT 1
+    </select>
+
+    <select id="findByEmail" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        WHERE mail = #{email}
+        LIMIT 1
+    </select>
+
+    <select id="findAll" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        ORDER BY id DESC
+    </select>
+
+    <insert id="insert" parameterType="org.example.kah.entity.MemberUser" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO member_user (
+            username, mail, password_hash, status, last_login_at, last_seen_at
+        ) VALUES (
+            #{username}, #{mail}, #{passwordHash}, #{status}, #{lastLoginAt}, #{lastSeenAt}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        UPDATE member_user
+        SET status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLoginState">
+        UPDATE member_user
+        SET last_login_at = #{loginAt},
+            last_seen_at = #{lastSeenAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateLastSeenAt">
+        UPDATE member_user
+        SET last_seen_at = #{lastSeenAt}
+        WHERE id = #{id}
+    </update>
+</mapper>

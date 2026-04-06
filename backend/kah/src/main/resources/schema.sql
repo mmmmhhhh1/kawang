@@ -112,6 +112,77 @@ CREATE TABLE IF NOT EXISTS admin_user (
     UNIQUE KEY uk_admin_user_username (username)
 );
 
+CREATE TABLE IF NOT EXISTS admin_user_permission (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    admin_user_id BIGINT NOT NULL,
+    permission_code VARCHAR(64) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_admin_user_permission (admin_user_id, permission_code),
+    KEY idx_admin_user_permission_admin (admin_user_id)
+);
+SET @member_user_has_mail = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_user'
+      AND COLUMN_NAME = 'mail'
+);
+SET @member_user_mail_sql = IF(
+    @member_user_has_mail = 0,
+    'ALTER TABLE member_user ADD COLUMN mail VARCHAR(120) NULL AFTER username',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_user_mail FROM @member_user_mail_sql;
+EXECUTE stmt_add_member_user_mail;
+DEALLOCATE PREPARE stmt_add_member_user_mail;
+
+SET @member_user_has_last_seen_at = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_user'
+      AND COLUMN_NAME = 'last_seen_at'
+);
+SET @member_user_last_seen_sql = IF(
+    @member_user_has_last_seen_at = 0,
+    'ALTER TABLE member_user ADD COLUMN last_seen_at DATETIME NULL AFTER last_login_at',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_user_last_seen FROM @member_user_last_seen_sql;
+EXECUTE stmt_add_member_user_last_seen;
+DEALLOCATE PREPARE stmt_add_member_user_last_seen;
+
+SET @member_user_has_mail_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_user'
+      AND INDEX_NAME = 'uk_member_user_mail'
+);
+SET @member_user_mail_index_sql = IF(
+    @member_user_has_mail_index = 0,
+    'ALTER TABLE member_user ADD UNIQUE KEY uk_member_user_mail (mail)',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_user_mail_index FROM @member_user_mail_index_sql;
+EXECUTE stmt_add_member_user_mail_index;
+DEALLOCATE PREPARE stmt_add_member_user_mail_index;
+
+SET @admin_user_has_is_super_admin = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'admin_user'
+      AND COLUMN_NAME = 'is_super_admin'
+);
+SET @admin_user_is_super_admin_sql = IF(
+    @admin_user_has_is_super_admin = 0,
+    'ALTER TABLE admin_user ADD COLUMN is_super_admin BOOLEAN NOT NULL DEFAULT FALSE AFTER display_name',
+    'SELECT 1'
+);
+PREPARE stmt_add_admin_user_is_super_admin FROM @admin_user_is_super_admin_sql;
+EXECUTE stmt_add_admin_user_is_super_admin;
+DEALLOCATE PREPARE stmt_add_admin_user_is_super_admin;
 SET @shop_order_has_user_id = (
     SELECT COUNT(*)
     FROM information_schema.COLUMNS

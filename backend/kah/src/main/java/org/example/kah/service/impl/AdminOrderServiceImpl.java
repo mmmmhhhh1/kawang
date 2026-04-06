@@ -25,8 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link AdminOrderService} 的默认实现。
- * 负责后台订单分页查询、详情查看和关闭订单后的卡密回滚。
+ * {@link AdminOrderService} 默认实现。
+ * 负责后台订单分页查询、详情查看、关闭订单和删除订单。
  */
 @Service
 @RequiredArgsConstructor
@@ -91,6 +91,17 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
         shopOrderMapper.close(id, trim(reason));
         productMapper.syncStats();
         return detail(id);
+    }
+
+    /**
+     * 硬删除订单以及其卡密快照，不回滚库存与卡密状态。
+     */
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        requireById(id);
+        shopOrderAccountMapper.deleteByOrderId(id);
+        shopOrderMapper.deleteById(id);
     }
 
     /**

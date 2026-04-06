@@ -7,7 +7,11 @@ import org.example.kah.common.ApiResponse;
 import org.example.kah.dto.admin.AdminProductSaveRequest;
 import org.example.kah.dto.admin.AdminProductStatusRequest;
 import org.example.kah.dto.admin.AdminProductView;
+import org.example.kah.entity.AdminPermissionCode;
+import org.example.kah.security.AuthenticatedUser;
+import org.example.kah.service.AdminPermissionService;
 import org.example.kah.service.AdminProductService;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminProductController {
 
     private final AdminProductService adminProductService;
+    private final AdminPermissionService adminPermissionService;
 
     /** 查询后台商品列表。 */
     @GetMapping
@@ -55,7 +60,8 @@ public class AdminProductController {
 
     /** 删除商品。 */
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
+    public ApiResponse<Void> delete(@PathVariable Long id, Authentication authentication) {
+        adminPermissionService.requirePermission((AuthenticatedUser) authentication.getPrincipal(), AdminPermissionCode.DELETE_PRODUCT);
         adminProductService.delete(id);
         return ApiResponse.success();
     }

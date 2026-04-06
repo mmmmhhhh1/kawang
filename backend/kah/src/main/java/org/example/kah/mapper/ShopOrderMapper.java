@@ -8,7 +8,7 @@ import org.example.kah.entity.ShopOrder;
 
 /**
  * 订单主表 Mapper。
- * 负责订单创建、后台分页查询、游客查单、会员订单查询和订单关闭。
+ * 负责订单创建、后台分页查询、游客查单、会员订单查询、订单关闭与硬删除。
  */
 @Mapper
 public interface ShopOrderMapper {
@@ -42,4 +42,7 @@ public interface ShopOrderMapper {
 
     /** 关闭订单。 */
     int close(@Param("id") Long id, @Param("reason") String reason);
+
+    /** 硬删除订单。 */
+    int deleteById(@Param("id") Long id);
 }

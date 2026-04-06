@@ -1,6 +1,7 @@
 package org.example.kah.mapper;
 
 import java.util.List;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -15,9 +16,7 @@ import org.example.kah.entity.ShopOrderAccount;
 @Mapper
 public interface ShopOrderAccountMapper {
 
-    /**
-     * 新增订单资源快照关系。
-     */
+    /** 新增订单资源快照关系。 */
     @Insert("""
             INSERT INTO shop_order_account (order_id, account_id, masked_account_snapshot, card_key_ciphertext_snapshot)
             VALUES (#{orderId}, #{accountId}, #{maskedAccountSnapshot}, #{cardKeyCiphertextSnapshot})
@@ -38,4 +37,11 @@ public interface ShopOrderAccountMapper {
             ORDER BY soa.id ASC
             """)
     List<ShopOrderAccount> findByOrderId(@Param("orderId") Long orderId);
+
+    /** 删除某个订单的全部资源快照。 */
+    @Delete("""
+            DELETE FROM shop_order_account
+            WHERE order_id = #{orderId}
+            """)
+    int deleteByOrderId(@Param("orderId") Long orderId);
 }

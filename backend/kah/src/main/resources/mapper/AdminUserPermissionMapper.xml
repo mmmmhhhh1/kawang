@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.AdminUserPermissionMapper">
+
+    <sql id="permissionColumns">
+        id, admin_user_id, permission_code, created_at
+    </sql>
+
+    <select id="findByAdminUserId" resultType="org.example.kah.entity.AdminUserPermission">
+        SELECT <include refid="permissionColumns" />
+        FROM admin_user_permission
+        WHERE admin_user_id = #{adminUserId}
+        ORDER BY id ASC
+    </select>
+
+    <delete id="deleteByAdminUserId">
+        DELETE FROM admin_user_permission
+        WHERE admin_user_id = #{adminUserId}
+    </delete>
+
+    <insert id="insertBatch">
+        INSERT INTO admin_user_permission (admin_user_id, permission_code)
+        VALUES
+        <foreach collection="permissions" item="permission" separator=",">
+            (#{adminUserId}, #{permission})
+        </foreach>
+    </insert>
+</mapper>

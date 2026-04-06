@@ -12,12 +12,13 @@ import org.example.kah.mapper.AdminUserMapper;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.security.JwtService;
 import org.example.kah.service.AdminAuthService;
+import org.example.kah.service.AdminPermissionService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
- * {@link AdminAuthService} 的默认实现。
+ * {@link AdminAuthService} 默认实现。
  * 负责管理员登录鉴权与当前登录管理员资料读取。
  */
 @Service
@@ -27,6 +28,7 @@ public class AdminAuthServiceImpl extends AbstractServiceSupport implements Admi
     private final AdminUserMapper adminUserMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final AdminPermissionService adminPermissionService;
 
     /**
      * 校验管理员账号密码并签发后台 JWT。
@@ -42,7 +44,7 @@ public class AdminAuthServiceImpl extends AbstractServiceSupport implements Admi
         return new AdminLoginResponse(
                 jwtService.createAdminToken(adminUser),
                 "Bearer",
-                new AdminProfileResponse(adminUser.getId(), adminUser.getUsername(), adminUser.getDisplayName()));
+                adminPermissionService.buildProfile(adminUser));
     }
 
     /**
@@ -54,6 +56,6 @@ public class AdminAuthServiceImpl extends AbstractServiceSupport implements Admi
         if (adminUser == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED, "登录状态已失效");
         }
-        return new AdminProfileResponse(adminUser.getId(), adminUser.getUsername(), adminUser.getDisplayName());
+        return adminPermissionService.buildProfile(adminUser);
     }
 }

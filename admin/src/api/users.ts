@@ -7,7 +7,6 @@ export type MemberListItem = {
   username: string | null
   email: string | null
   status: MemberStatus
-  isOnline: boolean
   lastSeenAt: string | null
   lastLoginAt: string | null
   createdAt: string
@@ -31,7 +30,6 @@ export type MemberDetail = {
   username: string | null
   email: string | null
   status: MemberStatus
-  isOnline: boolean
   lastSeenAt: string | null
   lastLoginAt: string | null
   createdAt: string

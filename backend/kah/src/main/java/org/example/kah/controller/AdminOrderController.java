@@ -7,7 +7,12 @@ import org.example.kah.common.PageResponse;
 import org.example.kah.dto.admin.AdminOrderCloseRequest;
 import org.example.kah.dto.admin.AdminOrderDetailView;
 import org.example.kah.dto.admin.AdminOrderItemView;
+import org.example.kah.entity.AdminPermissionCode;
+import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.AdminOrderService;
+import org.example.kah.service.AdminPermissionService;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 后台订单管理接口。
- * 仅管理员可访问，用于分页查询订单、查看订单详情和关闭订单。
+ * 仅管理员可访问，用于分页查询订单、查看订单详情、关闭订单和删除订单。
  */
 @RestController
 @RequestMapping("/api/admin/orders")
@@ -26,16 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminOrderController {
 
     private final AdminOrderService adminOrderService;
+    private final AdminPermissionService adminPermissionService;
 
     /**
      * 分页查询订单列表。
-     *
-     * @param page 页码
-     * @param size 每页数量
-     * @param status 状态筛选
-     * @param productId 商品筛选
-     * @param keyword 关键字筛选
-     * @return 订单分页结果
      */
     @GetMapping
     public ApiResponse<PageResponse<AdminOrderItemView>> list(
@@ -49,9 +48,6 @@ public class AdminOrderController {
 
     /**
      * 查询订单详情。
-     *
-     * @param id 订单主键
-     * @return 订单详情
      */
     @GetMapping("/{id}")
     public ApiResponse<AdminOrderDetailView> detail(@PathVariable Long id) {
@@ -60,13 +56,19 @@ public class AdminOrderController {
 
     /**
      * 关闭成功订单。
-     *
-     * @param id 订单主键
-     * @param request 关闭原因请求
-     * @return 关闭后的订单详情
      */
     @PatchMapping("/{id}/close")
     public ApiResponse<AdminOrderDetailView> close(@PathVariable Long id, @Valid @RequestBody AdminOrderCloseRequest request) {
         return ApiResponse.success(adminOrderService.close(id, request.reason().trim()));
+    }
+
+    /**
+     * 删除订单。
+     */
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id, Authentication authentication) {
+        adminPermissionService.requirePermission((AuthenticatedUser) authentication.getPrincipal(), AdminPermissionCode.DELETE_ORDER);
+        adminOrderService.delete(id);
+        return ApiResponse.success();
     }
 }
