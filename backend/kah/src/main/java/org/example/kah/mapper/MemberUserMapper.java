@@ -8,13 +8,15 @@ import org.example.kah.entity.MemberUser;
 
 /**
  * 前台会员 Mapper。
- * 负责会员注册登录查询、上次活跃时间维护以及后台会员管理列表读取。
  */
 @Mapper
 public interface MemberUserMapper {
 
     /** 按主键查询会员。 */
     MemberUser findById(@Param("id") Long id);
+
+    /** 按主键批量查询会员。 */
+    List<MemberUser> findByIds(@Param("ids") List<Long> ids);
 
     /** 按用户名查询会员。 */
     MemberUser findByUsername(@Param("username") String username);
@@ -34,6 +36,9 @@ public interface MemberUserMapper {
     /** 更新最近登录时间和最近活跃时间。 */
     int updateLoginState(@Param("id") Long id, @Param("loginAt") LocalDateTime loginAt, @Param("lastSeenAt") LocalDateTime lastSeenAt);
 
-    /** 更新最近活跃时间。 */
+    /** 仅更新最近活跃时间。 */
     int updateLastSeenAt(@Param("id") Long id, @Param("lastSeenAt") LocalDateTime lastSeenAt);
+
+    /** 合并 Redis 回写的活动信息。 */
+    int mergeActivityState(@Param("id") Long id, @Param("lastLoginAt") LocalDateTime lastLoginAt, @Param("lastSeenAt") LocalDateTime lastSeenAt);
 }

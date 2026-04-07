@@ -2,6 +2,7 @@ package org.example.kah.service.impl;
 
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
+import org.example.kah.annotation.TrackMemberSeen;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.dto.publicapi.MemberAuthResponse;
@@ -13,6 +14,7 @@ import org.example.kah.entity.MemberUser;
 import org.example.kah.mapper.MemberUserMapper;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.security.JwtService;
+import org.example.kah.service.MemberActivityCacheService;
 import org.example.kah.service.MemberUserService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -29,6 +31,7 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
     private final MemberUserMapper memberUserMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final MemberActivityCacheService memberActivityCacheService;
 
     /**
      * 注册会员并直接返回登录态。
@@ -48,6 +51,7 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         memberUser.setLastLoginAt(now);
         memberUser.setLastSeenAt(now);
         memberUserMapper.insert(memberUser);
+        memberActivityCacheService.recordLogin(memberUser.getId(), now);
         return toAuthResponse(memberUser);
     }
 
@@ -65,39 +69,30 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         memberUserMapper.updateLoginState(memberUser.getId(), now, now);
         memberUser.setLastLoginAt(now);
         memberUser.setLastSeenAt(now);
+        memberActivityCacheService.recordLogin(memberUser.getId(), now);
         return toAuthResponse(memberUser);
     }
 
     /**
-     * 读取当前登录会员资料，并刷新上次活跃时间。
+     * 读取当前登录会员资料，并通过切面记录最近活跃时间。
      */
     @Override
+    @TrackMemberSeen
     public MemberProfileView me(AuthenticatedUser currentUser) {
         MemberUser memberUser = requireById(currentUser.userId());
-        LocalDateTime now = LocalDateTime.now();
-        memberUserMapper.updateLastSeenAt(memberUser.getId(), now);
         return new MemberProfileView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail());
     }
 
-    /**
-     * 按主键查询会员实体。
-     */
     @Override
     protected MemberUser findEntityById(Long id) {
         return memberUserMapper.findById(id);
     }
 
-    /**
-     * 返回实体名称供异常提示复用。
-     */
     @Override
     protected String entityLabel() {
         return "会员";
     }
 
-    /**
-     * 组装会员认证响应。
-     */
     private MemberAuthResponse toAuthResponse(MemberUser memberUser) {
         return new MemberAuthResponse(
                 jwtService.createMemberToken(memberUser),

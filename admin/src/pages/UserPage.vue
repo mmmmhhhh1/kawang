@@ -1,14 +1,32 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminProfileState, hasAdminPermission } from '@/api/auth'
-import { getUserDetail, getUsers, updateUserStatus, type MemberDetail, type MemberListItem } from '@/api/users'
+import {
+  getUserActivities,
+  getUserActivity,
+  getUserDetail,
+  getUsers,
+  updateUserStatus,
+  type MemberActivity,
+  type MemberDetail,
+  type MemberListItem,
+} from '@/api/users'
+
+type MemberListRow = MemberListItem & {
+  lastSeenAt: string | null
+  lastLoginAt: string | null
+}
+
+const POLL_INTERVAL = 30_000
 
 const loading = ref(false)
 const detailLoading = ref(false)
 const detailVisible = ref(false)
-const members = ref<MemberListItem[]>([])
+const members = ref<MemberListRow[]>([])
 const detail = ref<MemberDetail | null>(null)
+const detailActivity = ref<MemberActivity | null>(null)
+let pollTimer: number | null = null
 
 const canToggleUser = computed(() => hasAdminPermission('DISABLE_USER', adminProfileState.value))
 
@@ -16,7 +34,7 @@ function displayText(value?: string | null) {
   return value?.trim() ? value : '-'
 }
 
-function statusLabel(status: MemberListItem['status']) {
+function statusLabel(status: MemberListRow['status']) {
   return status === 'ACTIVE' ? '正常' : '已停用'
 }
 
@@ -24,10 +42,64 @@ function timeText(value?: string | null) {
   return value || '-'
 }
 
+function mergeActivities(activities: MemberActivity[]) {
+  if (!activities.length) {
+    return
+  }
+  const activityMap = new Map(activities.map((item) => [item.userId, item]))
+  members.value = members.value.map((member) => {
+    const activity = activityMap.get(member.id)
+    if (!activity) {
+      return member
+    }
+    return {
+      ...member,
+      lastSeenAt: activity.lastSeenAt,
+      lastLoginAt: activity.lastLoginAt,
+    }
+  })
+}
+
+async function refreshMemberActivities(silent = false) {
+  const ids = members.value.map((item) => item.id)
+  if (!ids.length) {
+    return
+  }
+
+  try {
+    const activities = await getUserActivities(ids)
+    mergeActivities(activities)
+  } catch (error: any) {
+    if (!silent) {
+      ElMessage.error(error?.response?.data?.message ?? '会员活动时间加载失败')
+    }
+  }
+}
+
+async function refreshDetailActivity(silent = false) {
+  if (!detailVisible.value || !detail.value) {
+    return
+  }
+
+  try {
+    detailActivity.value = await getUserActivity(detail.value.id)
+  } catch (error: any) {
+    if (!silent) {
+      ElMessage.error(error?.response?.data?.message ?? '会员活动时间加载失败')
+    }
+  }
+}
+
 async function loadMembers() {
   loading.value = true
   try {
-    members.value = await getUsers()
+    const data = await getUsers()
+    members.value = data.map((item) => ({
+      ...item,
+      lastSeenAt: null,
+      lastLoginAt: null,
+    }))
+    await refreshMemberActivities(true)
   } finally {
     loading.value = false
   }
@@ -37,7 +109,9 @@ async function openDetail(id: number) {
   detailVisible.value = true
   detailLoading.value = true
   try {
-    detail.value = await getUserDetail(id)
+    const [detailData, activityData] = await Promise.all([getUserDetail(id), getUserActivity(id)])
+    detail.value = detailData
+    detailActivity.value = activityData
   } catch (error: any) {
     detailVisible.value = false
     ElMessage.error(error?.response?.data?.message ?? '会员详情加载失败')
@@ -46,7 +120,24 @@ async function openDetail(id: number) {
   }
 }
 
-async function toggleStatus(row: MemberListItem) {
+function stopPolling() {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = window.setInterval(() => {
+    void refreshMemberActivities(true)
+    if (detailVisible.value) {
+      void refreshDetailActivity(true)
+    }
+  }, POLL_INTERVAL)
+}
+
+async function toggleStatus(row: MemberListRow) {
   if (!canToggleUser.value) {
     return
   }
@@ -62,7 +153,9 @@ async function toggleStatus(row: MemberListItem) {
     await updateUserStatus(row.id, nextStatus)
     ElMessage.success(`会员已${actionLabel}`)
     if (detail.value?.id === row.id) {
-      detail.value = await getUserDetail(row.id)
+      const [detailData, activityData] = await Promise.all([getUserDetail(row.id), getUserActivity(row.id)])
+      detail.value = detailData
+      detailActivity.value = activityData
     }
     await loadMembers()
   } catch (error: any) {
@@ -73,7 +166,21 @@ async function toggleStatus(row: MemberListItem) {
   }
 }
 
-onMounted(loadMembers)
+watch(detailVisible, (visible) => {
+  if (!visible) {
+    detail.value = null
+    detailActivity.value = null
+  }
+})
+
+onMounted(async () => {
+  await loadMembers()
+  startPolling()
+})
+
+onBeforeUnmount(() => {
+  stopPolling()
+})
 </script>
 
 <template>
@@ -81,7 +188,7 @@ onMounted(loadMembers)
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>查看会员列表、最近登录和上次活跃时间，并在具备权限时直接启用或停用会员账号。</p>
+          <p>查看会员基础资料，并仅在本页面轮询上次活跃时间和最近登录时间。</p>
           <h1>会员管理</h1>
         </div>
       </div>
@@ -130,8 +237,8 @@ onMounted(loadMembers)
             <el-descriptions-item label="用户名">{{ displayText(detail.username) }}</el-descriptions-item>
             <el-descriptions-item label="邮箱">{{ displayText(detail.email) }}</el-descriptions-item>
             <el-descriptions-item label="账号状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
-            <el-descriptions-item label="上次活跃时间">{{ timeText(detail.lastSeenAt) }}</el-descriptions-item>
-            <el-descriptions-item label="最近登录时间">{{ timeText(detail.lastLoginAt) }}</el-descriptions-item>
+            <el-descriptions-item label="上次活跃时间">{{ timeText(detailActivity?.lastSeenAt) }}</el-descriptions-item>
+            <el-descriptions-item label="最近登录时间">{{ timeText(detailActivity?.lastLoginAt) }}</el-descriptions-item>
             <el-descriptions-item label="注册时间">{{ timeText(detail.createdAt) }}</el-descriptions-item>
             <el-descriptions-item label="更新时间">{{ timeText(detail.updatedAt) }}</el-descriptions-item>
           </el-descriptions>
@@ -142,7 +249,7 @@ onMounted(loadMembers)
               <span>共 {{ detail.orders.length }} 笔</span>
             </div>
 
-            <el-empty v-if="!detail.orders.length" description="该会员暂无订单" />
+            <el-empty v-if="!detail.orders.length" description="该会员暂时没有订单" />
 
             <div v-else class="member-orders-grid">
               <article v-for="order in detail.orders" :key="order.id" class="member-order-card">

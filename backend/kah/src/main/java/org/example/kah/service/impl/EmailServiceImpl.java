@@ -17,6 +17,7 @@ import org.example.kah.entity.MemberUser;
 import org.example.kah.mapper.MemberUserMapper;
 import org.example.kah.security.JwtService;
 import org.example.kah.service.EmailService;
+import org.example.kah.service.MemberActivityCacheService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.SimpleMailMessage;
@@ -37,18 +38,13 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final JavaMailSender mailSender;
+    private final MemberActivityCacheService memberActivityCacheService;
 
-    /**
-     * 按主键查询会员实体。
-     */
     @Override
     protected MemberUser findEntityById(Long id) {
         return memberUserMapper.findById(id);
     }
 
-    /**
-     * 统一实体名称，供抽象基类复用。
-     */
     @Override
     protected String entityLabel() {
         return "会员";
@@ -69,6 +65,7 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         memberUserMapper.updateLoginState(memberUser.getId(), now, now);
         memberUser.setLastLoginAt(now);
         memberUser.setLastSeenAt(now);
+        memberActivityCacheService.recordLogin(memberUser.getId(), now);
         return toAuthResponse(memberUser);
     }
 
@@ -82,7 +79,7 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         message.setTo(request.email());
         message.setSubject("您的验证码");
         String code = RandomStringUtils.secure().next(6, false, true);
-        message.setText(code + "，10分钟内有效");
+        message.setText(code + "，10 分钟内有效");
         stringRedisTemplate.opsForValue().set(request.email(), code, 600, TimeUnit.SECONDS);
         mailSender.send(message);
         return ApiResponse.success();
@@ -109,12 +106,10 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         memberUser.setLastLoginAt(now);
         memberUser.setLastSeenAt(now);
         memberUserMapper.insert(memberUser);
+        memberActivityCacheService.recordLogin(memberUser.getId(), now);
         return toAuthResponse(memberUser);
     }
 
-    /**
-     * 校验邮箱验证码是否存在且匹配。
-     */
     private void verifyCode(String email, String code) {
         String cached = stringRedisTemplate.opsForValue().get(email);
         if (cached == null) {
@@ -125,9 +120,6 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         }
     }
 
-    /**
-     * 组装会员认证响应。
-     */
     private MemberAuthResponse toAuthResponse(MemberUser memberUser) {
         return new MemberAuthResponse(
                 jwtService.createMemberToken(memberUser),

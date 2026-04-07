@@ -13,6 +13,16 @@
         LIMIT 1
     </select>
 
+    <select id="findByIds" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY id DESC
+    </select>
+
     <select id="findByUsername" resultType="org.example.kah.entity.MemberUser">
         SELECT <include refid="memberColumns" />
         FROM member_user
@@ -57,6 +67,19 @@
     <update id="updateLastSeenAt">
         UPDATE member_user
         SET last_seen_at = #{lastSeenAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="mergeActivityState">
+        UPDATE member_user
+        SET last_login_at = CASE
+                WHEN #{lastLoginAt} IS NULL THEN last_login_at
+                ELSE #{lastLoginAt}
+            END,
+            last_seen_at = CASE
+                WHEN #{lastSeenAt} IS NULL THEN last_seen_at
+                ELSE #{lastSeenAt}
+            END
         WHERE id = #{id}
     </update>
 </mapper>

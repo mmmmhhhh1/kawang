@@ -11,8 +11,6 @@ public record AdminMemberDetailView(
         String username,
         String email,
         String status,
-        LocalDateTime lastSeenAt,
-        LocalDateTime lastLoginAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         List<AdminMemberOrderView> orders

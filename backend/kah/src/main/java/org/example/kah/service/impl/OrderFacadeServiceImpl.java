@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
+import org.example.kah.annotation.TrackMemberSeen;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.dto.publicapi.CardKeyView;
@@ -20,7 +21,6 @@ import org.example.kah.entity.ProductStatus;
 import org.example.kah.entity.ShopOrder;
 import org.example.kah.entity.ShopOrderAccount;
 import org.example.kah.entity.ShopProduct;
-import org.example.kah.mapper.MemberUserMapper;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
@@ -49,13 +49,13 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     private final ShopOrderAccountMapper shopOrderAccountMapper;
     private final OrderNumberGenerator orderNumberGenerator;
     private final CryptoService cryptoService;
-    private final MemberUserMapper memberUserMapper;
 
     /**
      * 创建订单并分配卡密。
      */
     @Override
     @Transactional
+    @TrackMemberSeen
     public OrderCreatedResponse create(CreateOrderRequest request, AuthenticatedUser currentUser) {
         ShopProduct product = productMapper.lockById(request.productId());
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
@@ -108,9 +108,6 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
             shopOrderAccountMapper.insert(orderAccount);
         }
 
-        if (currentUser != null) {
-            memberUserMapper.updateLastSeenAt(currentUser.userId(), now);
-        }
         productMapper.syncStats();
         return new OrderCreatedResponse(
                 order.getOrderNo(),
@@ -144,17 +141,14 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     }
 
     /**
-     * 查询会员已绑定订单，并刷新上次活跃时间。
+     * 查询会员已绑定订单，并通过切面记录最近活跃时间。
      */
     @Override
+    @TrackMemberSeen
     public List<OrderQueryView> listByUser(Long userId) {
-        memberUserMapper.updateLastSeenAt(userId, LocalDateTime.now());
         return shopOrderMapper.findByUserId(userId).stream().map(this::toView).toList();
     }
 
-    /**
-     * 将订单实体映射为前台查询视图。
-     */
     private OrderQueryView toView(ShopOrder order) {
         return new OrderQueryView(
                 order.getId(),
@@ -167,9 +161,6 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 loadCardKeys(order.getId()));
     }
 
-    /**
-     * 生成订单卡密列表视图。
-     */
     private List<CardKeyView> loadCardKeys(Long orderId) {
         return shopOrderAccountMapper.findByOrderId(orderId).stream()
                 .filter(item -> item.getCardKeyCiphertextSnapshot() != null && !item.getCardKeyCiphertextSnapshot().isBlank())
@@ -179,25 +170,16 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 .toList();
     }
 
-    /**
-     * 将分配到的资源实体转换为返回视图。
-     */
     private List<CardKeyView> toCardKeyViews(List<ProductAccount> cardKeys) {
         return cardKeys.stream()
                 .map(item -> new CardKeyView(decryptCardKey(item), item.getEnableStatus()))
                 .toList();
     }
 
-    /**
-     * 解密卡密正文。
-     */
     private String decryptCardKey(ProductAccount account) {
         return cryptoService.decrypt(account.getCardKeyCiphertext());
     }
 
-    /**
-     * 根据联系方式与查单密码生成唯一查单哈希。
-     */
     private String buildLookupHash(String buyerContact, String lookupSecret) {
         return cryptoService.digest(buyerContact + ":" + trim(lookupSecret));
     }

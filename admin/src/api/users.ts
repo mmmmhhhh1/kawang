@@ -7,8 +7,6 @@ export type MemberListItem = {
   username: string | null
   email: string | null
   status: MemberStatus
-  lastSeenAt: string | null
-  lastLoginAt: string | null
   createdAt: string
 }
 
@@ -30,11 +28,15 @@ export type MemberDetail = {
   username: string | null
   email: string | null
   status: MemberStatus
-  lastSeenAt: string | null
-  lastLoginAt: string | null
   createdAt: string
   updatedAt: string
   orders: MemberOrderDetail[]
+}
+
+export type MemberActivity = {
+  userId: number
+  lastSeenAt: string | null
+  lastLoginAt: string | null
 }
 
 export async function getUsers() {
@@ -44,6 +46,18 @@ export async function getUsers() {
 
 export async function getUserDetail(id: number) {
   const response = await adminHttp.get<ApiResponse<MemberDetail>>(`/users/${id}`)
+  return response.data.data
+}
+
+export async function getUserActivities(ids: number[]) {
+  const response = await adminHttp.get<ApiResponse<MemberActivity[]>>('/users/activity', {
+    params: { ids: ids.join(',') },
+  })
+  return response.data.data
+}
+
+export async function getUserActivity(id: number) {
+  const response = await adminHttp.get<ApiResponse<MemberActivity>>(`/users/${id}/activity`)
   return response.data.data
 }
 

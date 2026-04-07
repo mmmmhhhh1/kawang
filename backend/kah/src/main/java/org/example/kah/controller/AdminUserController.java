@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
+import org.example.kah.dto.admin.AdminMemberActivityView;
 import org.example.kah.dto.admin.AdminMemberDetailView;
 import org.example.kah.dto.admin.AdminMemberListView;
 import org.example.kah.dto.admin.AdminMemberStatusRequest;
@@ -17,11 +18,11 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 后台会员管理接口。
- * 管理员可查看会员列表和详情，具备指定权限时可停用或启用会员账号。
  */
 @RestController
 @RequestMapping("/api/admin/users")
@@ -31,7 +32,7 @@ public class AdminUserController {
     private final AdminMemberService adminMemberService;
     private final AdminPermissionService adminPermissionService;
 
-    /** 查询会员列表。 */
+    /** 查询会员基础列表。 */
     @GetMapping
     public ApiResponse<List<AdminMemberListView>> list() {
         return ApiResponse.success(adminMemberService.list());
@@ -41,6 +42,18 @@ public class AdminUserController {
     @GetMapping("/{id}")
     public ApiResponse<AdminMemberDetailView> detail(@PathVariable Long id) {
         return ApiResponse.success(adminMemberService.detail(id));
+    }
+
+    /** 批量查询会员活动信息。 */
+    @GetMapping("/activity")
+    public ApiResponse<List<AdminMemberActivityView>> listActivities(@RequestParam List<Long> ids) {
+        return ApiResponse.success(adminMemberService.listActivities(ids));
+    }
+
+    /** 查询单个会员活动信息。 */
+    @GetMapping("/{id}/activity")
+    public ApiResponse<AdminMemberActivityView> activity(@PathVariable Long id) {
+        return ApiResponse.success(adminMemberService.activity(id));
     }
 
     /** 更新会员状态。 */
