@@ -17,16 +17,17 @@ import org.example.kah.entity.ShopProduct;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.service.AdminAccountService;
+import org.example.kah.service.ProductCacheRefreshService;
+import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.MaskingUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AdminAccountService} 的默认实现。
- * 负责卡密池管理，并在导入、启停、删除后同步商品库存统计。
+ * 负责卡密池管理，并在导入、启停、删除后同步商品库存统计与缓存。
  */
 @Service
 @RequiredArgsConstructor
@@ -35,6 +36,8 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
     private final ProductAccountMapper productAccountMapper;
     private final ProductMapper productMapper;
     private final CryptoService cryptoService;
+    private final ProductLockExecutorService productLockExecutorService;
+    private final ProductCacheRefreshService productCacheRefreshService;
 
     /** 查询卡密池列表。 */
     @Override
@@ -51,8 +54,61 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
 
     /** 批量导入卡密。 */
     @Override
-    @Transactional
     public List<AdminAccountView> create(AdminAccountCreateRequest request) {
+        return productLockExecutorService.execute(
+                request.productId(),
+                () -> doCreate(request),
+                () -> productCacheRefreshService.refreshStatsAfterWrite(request.productId()));
+    }
+
+    /** 更新单条卡密启用状态。 */
+    @Override
+    public AdminAccountView updateStatus(Long id, String enableStatus) {
+        ProductAccount account = requireCardKey(id);
+        return productLockExecutorService.execute(
+                account.getProductId(),
+                () -> doUpdateStatus(id, enableStatus),
+                () -> productCacheRefreshService.refreshStatsAfterWrite(account.getProductId()));
+    }
+
+    /** 批量停用卡密。 */
+    @Override
+    public int bulkDisable(String scope, Long productId) {
+        return handleBulkStatus(scope, productId, false);
+    }
+
+    /** 批量启用卡密。 */
+    @Override
+    public int bulkEnable(String scope, Long productId) {
+        return handleBulkStatus(scope, productId, true);
+    }
+
+    /**
+     * 删除单条卡密。
+     * 只允许删除未售出的卡密；已售卡密需要保留历史发货痕迹，只允许停用。
+     */
+    @Override
+    public void delete(Long id) {
+        ProductAccount account = requireCardKey(id);
+        productLockExecutorService.execute(
+                account.getProductId(),
+                () -> doDelete(id),
+                () -> productCacheRefreshService.refreshStatsAfterWrite(account.getProductId()));
+    }
+
+    /** 按主键查询资源实体。 */
+    @Override
+    protected ProductAccount findEntityById(Long id) {
+        return productAccountMapper.findById(id);
+    }
+
+    /** 返回实体名称供异常提示复用。 */
+    @Override
+    protected String entityLabel() {
+        return "卡密";
+    }
+
+    private List<AdminAccountView> doCreate(AdminAccountCreateRequest request) {
         ShopProduct product = productMapper.findById(request.productId());
         if (product == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "商品不存在");
@@ -84,14 +140,11 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             created.add(toView(createdAccount));
         }
 
-        productMapper.syncStats();
+        productMapper.syncStatsByProductId(request.productId());
         return created;
     }
 
-    /** 更新单条卡密启用状态。 */
-    @Override
-    @Transactional
-    public AdminAccountView updateStatus(Long id, String enableStatus) {
+    private AdminAccountView doUpdateStatus(Long id, String enableStatus) {
         String safeEnableStatus = trim(enableStatus);
         if (!EnableStatus.ENABLED.equals(safeEnableStatus) && !EnableStatus.DISABLED.equals(safeEnableStatus)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅支持 ENABLED 或 DISABLED");
@@ -100,7 +153,7 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         ProductAccount account = requireCardKey(id);
         if (!safeEnableStatus.equals(account.getEnableStatus())) {
             productAccountMapper.updateEnableStatus(id, safeEnableStatus);
-            productMapper.syncStats();
+            productMapper.syncStatsByProductId(account.getProductId());
         }
 
         ProductAccount latest = productAccountMapper.findById(id);
@@ -108,72 +161,47 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         return toView(latest);
     }
 
-    /** 批量停用卡密。 */
-    @Override
-    @Transactional
-    public int bulkDisable(String scope, Long productId) {
-        int updated = handleBulkStatus(scope, productId, false);
-        productMapper.syncStats();
-        return updated;
-    }
-
-    /** 批量启用卡密。 */
-    @Override
-    @Transactional
-    public int bulkEnable(String scope, Long productId) {
-        int updated = handleBulkStatus(scope, productId, true);
-        productMapper.syncStats();
-        return updated;
-    }
-
-    /**
-     * 删除单条卡密。
-     * 只允许删除未售出的卡密；已售卡密需要保留历史发货痕迹，只允许停用。
-     */
-    @Override
-    @Transactional
-    public void delete(Long id) {
-        ProductAccount account = requireCardKey(id);
-        if (SaleStatus.SOLD.equals(account.getSaleStatus())) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "已售卡密不能删除，请改用停用功能");
-        }
-        productAccountMapper.deleteById(id);
-        productMapper.syncStats();
-    }
-
-    /** 按主键查询资源实体。 */
-    @Override
-    protected ProductAccount findEntityById(Long id) {
-        return productAccountMapper.findById(id);
-    }
-
-    /** 返回实体名称供异常提示复用。 */
-    @Override
-    protected String entityLabel() {
-        return "卡密";
-    }
-
-    /** 统一处理批量启停逻辑。 */
     private int handleBulkStatus(String scope, Long productId, boolean enable) {
         String safeScope = trim(scope);
-        int updated;
         if ("PRODUCT".equalsIgnoreCase(safeScope)) {
             require(productId != null, "按商品批量操作时必须传入 productId");
             ShopProduct product = productMapper.findById(productId);
             if (product == null) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "商品不存在");
             }
-            updated = enable
-                    ? productAccountMapper.bulkEnableCardKeysByProduct(productId)
-                    : productAccountMapper.bulkDisableCardKeysByProduct(productId);
-        } else if ("ALL".equalsIgnoreCase(safeScope)) {
-            updated = enable
-                    ? productAccountMapper.bulkEnableAllCardKeys()
-                    : productAccountMapper.bulkDisableAllCardKeys();
-        } else {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "批量范围仅支持 PRODUCT 或 ALL");
+            return productLockExecutorService.execute(
+                    productId,
+                    () -> doBulkStatusByProduct(productId, enable),
+                    () -> productCacheRefreshService.refreshStatsAfterWrite(productId));
         }
+        if ("ALL".equalsIgnoreCase(safeScope)) {
+            int updated = 0;
+            for (Long affectedProductId : productAccountMapper.findAllCardKeyProductIds()) {
+                updated += productLockExecutorService.execute(
+                        affectedProductId,
+                        () -> doBulkStatusByProduct(affectedProductId, enable),
+                        () -> productCacheRefreshService.refreshStatsAfterWrite(affectedProductId));
+            }
+            return updated;
+        }
+        throw new BusinessException(ErrorCode.BAD_REQUEST, "批量范围仅支持 PRODUCT 或 ALL");
+    }
+
+    private int doBulkStatusByProduct(Long productId, boolean enable) {
+        int updated = enable
+                ? productAccountMapper.bulkEnableCardKeysByProduct(productId)
+                : productAccountMapper.bulkDisableCardKeysByProduct(productId);
+        productMapper.syncStatsByProductId(productId);
         return updated;
+    }
+
+    private void doDelete(Long id) {
+        ProductAccount account = requireCardKey(id);
+        if (SaleStatus.SOLD.equals(account.getSaleStatus())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "已售卡密不能删除，请改用停用功能");
+        }
+        productAccountMapper.deleteById(id);
+        productMapper.syncStatsByProductId(account.getProductId());
     }
 
     /** 校验记录属于卡密池主流程。 */

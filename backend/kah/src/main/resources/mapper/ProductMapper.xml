@@ -40,6 +40,17 @@
         FOR UPDATE
     </select>
 
+    <select id="findStatsByIds" resultType="org.example.kah.cache.ProductStatsCacheItem">
+        SELECT id AS productId,
+               available_stock AS availableStock,
+               sold_count AS soldCount
+        FROM shop_product
+        WHERE id IN
+        <foreach collection="productIds" item="productId" open="(" separator="," close=")">
+            #{productId}
+        </foreach>
+    </select>
+
     <insert id="insert" parameterType="org.example.kah.entity.ShopProduct" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO shop_product (
             sku, title, vendor, plan_name, description, price, available_stock, sold_count, status, sort_order
@@ -91,6 +102,26 @@
                   AND pa.resource_type = 'CARD_KEY'
                   AND pa.sale_status = 'SOLD'
             )
+    </update>
+
+    <update id="syncStatsByProductId">
+        UPDATE shop_product p
+        SET available_stock = (
+                SELECT COUNT(*)
+                FROM product_account pa
+                WHERE pa.product_id = p.id
+                  AND pa.resource_type = 'CARD_KEY'
+                  AND pa.sale_status = 'UNSOLD'
+                  AND pa.enable_status = 'ENABLED'
+            ),
+            sold_count = (
+                SELECT COUNT(*)
+                FROM product_account pa
+                WHERE pa.product_id = p.id
+                  AND pa.resource_type = 'CARD_KEY'
+                  AND pa.sale_status = 'SOLD'
+            )
+        WHERE p.id = #{id}
     </update>
 
     <delete id="deleteById">

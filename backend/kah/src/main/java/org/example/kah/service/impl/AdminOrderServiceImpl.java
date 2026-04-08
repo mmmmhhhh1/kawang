@@ -19,6 +19,8 @@ import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.service.AdminOrderService;
+import org.example.kah.service.ProductCacheRefreshService;
+import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.example.kah.util.CryptoService;
 import org.springframework.stereotype.Service;
@@ -37,10 +39,10 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
     private final ProductAccountMapper productAccountMapper;
     private final ProductMapper productMapper;
     private final CryptoService cryptoService;
+    private final ProductLockExecutorService productLockExecutorService;
+    private final ProductCacheRefreshService productCacheRefreshService;
 
-    /**
-     * 分页查询订单列表。
-     */
+    /** 分页查询订单列表。 */
     @Override
     public PageResponse<AdminOrderItemView> list(int page, int size, String status, Long productId, String keyword) {
         int safePage = normalizePage(page);
@@ -56,9 +58,7 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
         return new PageResponse<>(items, total, safePage, safeSize);
     }
 
-    /**
-     * 查询订单详情以及该订单绑定的卡密列表。
-     */
+    /** 查询订单详情以及该订单绑定的卡密列表。 */
     @Override
     public AdminOrderDetailView detail(Long id) {
         ShopOrder order = requireById(id);
@@ -69,12 +69,38 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
         return toDetailView(order, cardKeys);
     }
 
-    /**
-     * 关闭成功订单并释放已分配卡密。
-     */
+    /** 关闭成功订单并释放已分配卡密。 */
+    @Override
+    public AdminOrderDetailView close(Long id, String reason) {
+        ShopOrder snapshot = requireById(id);
+        return productLockExecutorService.execute(
+                snapshot.getProductId(),
+                () -> doClose(id, reason),
+                () -> productCacheRefreshService.refreshStatsAfterWrite(snapshot.getProductId()));
+    }
+
+    /** 硬删除订单以及其卡密快照，不回滚库存与卡密状态。 */
     @Override
     @Transactional
-    public AdminOrderDetailView close(Long id, String reason) {
+    public void delete(Long id) {
+        requireById(id);
+        shopOrderAccountMapper.deleteByOrderId(id);
+        shopOrderMapper.deleteById(id);
+    }
+
+    /** 按主键查询订单实体。 */
+    @Override
+    protected ShopOrder findEntityById(Long id) {
+        return shopOrderMapper.findById(id);
+    }
+
+    /** 返回实体名称供异常提示复用。 */
+    @Override
+    protected String entityLabel() {
+        return "订单";
+    }
+
+    private AdminOrderDetailView doClose(Long id, String reason) {
         ShopOrder order = shopOrderMapper.lockById(id);
         if (order == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "订单不存在");
@@ -89,40 +115,11 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
         }
 
         shopOrderMapper.close(id, trim(reason));
-        productMapper.syncStats();
+        productMapper.syncStatsByProductId(order.getProductId());
         return detail(id);
     }
 
-    /**
-     * 硬删除订单以及其卡密快照，不回滚库存与卡密状态。
-     */
-    @Override
-    @Transactional
-    public void delete(Long id) {
-        requireById(id);
-        shopOrderAccountMapper.deleteByOrderId(id);
-        shopOrderMapper.deleteById(id);
-    }
-
-    /**
-     * 按主键查询订单实体。
-     */
-    @Override
-    protected ShopOrder findEntityById(Long id) {
-        return shopOrderMapper.findById(id);
-    }
-
-    /**
-     * 返回实体名称供异常提示复用。
-     */
-    @Override
-    protected String entityLabel() {
-        return "订单";
-    }
-
-    /**
-     * 将订单实体映射为后台列表视图。
-     */
+    /** 将订单实体映射为后台列表视图。 */
     private AdminOrderItemView toItemView(ShopOrder order) {
         return new AdminOrderItemView(
                 order.getId(),
@@ -140,9 +137,7 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
                 order.getCreatedAt());
     }
 
-    /**
-     * 组装后台订单详情视图。
-     */
+    /** 组装后台订单详情视图。 */
     private AdminOrderDetailView toDetailView(ShopOrder order, List<String> cardKeys) {
         return new AdminOrderDetailView(
                 order.getId(),

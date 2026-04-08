@@ -31,6 +31,13 @@
         ORDER BY pa.id DESC
     </select>
 
+    <select id="findAllCardKeyProductIds" resultType="long">
+        SELECT DISTINCT product_id
+        FROM product_account
+        WHERE resource_type = 'CARD_KEY'
+        ORDER BY product_id ASC
+    </select>
+
     <select id="findById" resultType="org.example.kah.entity.ProductAccount">
         SELECT <include refid="baseColumns" />
         FROM product_account

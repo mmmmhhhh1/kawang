@@ -12,10 +12,11 @@ import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.service.AdminProductService;
+import org.example.kah.service.ProductCacheRefreshService;
+import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link AdminProductService} 的默认实现。
@@ -28,6 +29,8 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     private final ProductMapper productMapper;
     private final ProductAccountMapper productAccountMapper;
     private final ShopOrderMapper shopOrderMapper;
+    private final ProductCacheRefreshService productCacheRefreshService;
+    private final ProductLockExecutorService productLockExecutorService;
 
     /** 读取后台商品列表。 */
     @Override
@@ -51,6 +54,8 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "SKU 已存在");
         }
+        productCacheRefreshService.refreshBaseAfterWrite(product.getId());
+        productCacheRefreshService.refreshStatsAfterWrite(product.getId());
         return toView(productMapper.findById(product.getId()));
     }
 
@@ -65,6 +70,7 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         }
         fillProduct(existing, request);
         productMapper.update(existing);
+        productCacheRefreshService.refreshBaseAfterWrite(id);
         return toView(productMapper.findById(id));
     }
 
@@ -73,8 +79,14 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     public AdminProductView updateStatus(Long id, String status) {
         ensureStatus(status);
         requireById(id);
-        productMapper.updateStatus(id, status);
-        return toView(productMapper.findById(id));
+        AdminProductView view = productLockExecutorService.execute(
+                id,
+                () -> {
+                    productMapper.updateStatus(id, status);
+                    return toView(productMapper.findById(id));
+                },
+                () -> productCacheRefreshService.refreshBaseAfterWrite(id));
+        return view;
     }
 
     /**
@@ -82,15 +94,11 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
      * 已有关联订单的商品不允许删除；没有历史订单的商品会连同卡密池一起删除。
      */
     @Override
-    @Transactional
     public void delete(Long id) {
-        requireById(id);
-        long orderCount = shopOrderMapper.countByProductId(id);
-        if (orderCount > 0) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "商品已有历史订单，不能删除");
-        }
-        productAccountMapper.deleteByProductId(id);
-        productMapper.deleteById(id);
+        productLockExecutorService.execute(
+                id,
+                () -> doDelete(id),
+                () -> productCacheRefreshService.removeProductAfterDelete(id));
     }
 
     /** 按主键查询商品实体。 */
@@ -115,6 +123,16 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         product.setPrice(request.price());
         product.setStatus(trim(request.status()));
         product.setSortOrder(request.sortOrder());
+    }
+
+    private void doDelete(Long id) {
+        requireById(id);
+        long orderCount = shopOrderMapper.countByProductId(id);
+        if (orderCount > 0) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "商品已有历史订单，不能删除");
+        }
+        productAccountMapper.deleteByProductId(id);
+        productMapper.deleteById(id);
     }
 
     /** 将实体映射为后台商品视图。 */

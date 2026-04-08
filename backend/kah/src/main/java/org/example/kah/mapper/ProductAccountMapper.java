@@ -19,6 +19,9 @@ public interface ProductAccountMapper {
     /** 查询某个商品下的全部卡密池记录。 */
     List<ProductAccount> findCardKeysByProductId(@Param("productId") Long productId);
 
+    /** 查询存在卡密池记录的商品主键集合。 */
+    List<Long> findAllCardKeyProductIds();
+
     /** 按主键查询卡密记录。 */
     ProductAccount findById(@Param("id") Long id);
 

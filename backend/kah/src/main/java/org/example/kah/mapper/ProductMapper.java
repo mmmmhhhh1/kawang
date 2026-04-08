@@ -3,6 +3,7 @@ package org.example.kah.mapper;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.example.kah.cache.ProductStatsCacheItem;
 import org.example.kah.entity.ShopProduct;
 
 /**
@@ -24,7 +25,7 @@ public interface ProductMapper {
     /** 按 SKU 查询商品。 */
     ShopProduct findBySku(@Param("sku") String sku);
 
-    /** 锁定商品记录，供下单和关闭订单事务使用。 */
+    /** 锁定商品记录，供下单和库存回滚事务使用。 */
     ShopProduct lockById(@Param("id") Long id);
 
     /** 新增商品。 */
@@ -41,6 +42,12 @@ public interface ProductMapper {
 
     /** 基于卡密池重新同步全部商品的库存与销量统计。 */
     int syncStats();
+
+    /** 仅同步单商品的库存与销量统计。 */
+    int syncStatsByProductId(@Param("id") Long id);
+
+    /** 批量查询商品当前库存与销量。 */
+    List<ProductStatsCacheItem> findStatsByIds(@Param("productIds") List<Long> productIds);
 
     /** 删除商品。 */
     int deleteById(@Param("id") Long id);

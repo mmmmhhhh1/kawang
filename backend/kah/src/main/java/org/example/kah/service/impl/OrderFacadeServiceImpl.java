@@ -27,13 +27,14 @@ import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.OrderFacadeService;
+import org.example.kah.service.ProductCacheRefreshService;
+import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.MaskingUtils;
 import org.example.kah.util.OrderNumberGenerator;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link OrderFacadeService} 默认实现。
@@ -49,14 +50,47 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     private final ShopOrderAccountMapper shopOrderAccountMapper;
     private final OrderNumberGenerator orderNumberGenerator;
     private final CryptoService cryptoService;
+    private final ProductLockExecutorService productLockExecutorService;
+    private final ProductCacheRefreshService productCacheRefreshService;
 
-    /**
-     * 创建订单并分配卡密。
-     */
+    /** 创建订单并分配卡密。 */
     @Override
-    @Transactional
     @TrackMemberSeen
     public OrderCreatedResponse create(CreateOrderRequest request, AuthenticatedUser currentUser) {
+        return productLockExecutorService.execute(
+                request.productId(),
+                () -> doCreate(request, currentUser),
+                () -> productCacheRefreshService.refreshStatsAfterWrite(request.productId()));
+    }
+
+    /** 按联系方式和查单凭证查询订单。 */
+    @Override
+    public List<OrderQueryView> queryByContact(QueryOrdersRequest request) {
+        String buyerContact = trim(request.buyerContact());
+        String lookupSecret = trim(request.lookupSecret());
+        String orderNo = trim(request.orderNo());
+        require(
+                (lookupSecret != null && !lookupSecret.isBlank()) || (orderNo != null && !orderNo.isBlank()),
+                "请输入联系方式和查单密码，或使用旧订单号兼容查询");
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("buyerContact", buyerContact);
+        if (lookupSecret != null && !lookupSecret.isBlank()) {
+            params.put("lookupHash", buildLookupHash(buyerContact, lookupSecret));
+        } else {
+            params.put("orderNo", orderNo);
+        }
+        return shopOrderMapper.findByContact(params).stream().map(this::toView).toList();
+    }
+
+    /** 查询会员已绑定订单，并通过切面记录最近活跃时间。 */
+    @Override
+    @TrackMemberSeen
+    public List<OrderQueryView> listByUser(Long userId) {
+        return shopOrderMapper.findByUserId(userId).stream().map(this::toView).toList();
+    }
+
+    private OrderCreatedResponse doCreate(CreateOrderRequest request, AuthenticatedUser currentUser) {
         ShopProduct product = productMapper.lockById(request.productId());
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "商品不存在或已下架");
@@ -108,7 +142,7 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
             shopOrderAccountMapper.insert(orderAccount);
         }
 
-        productMapper.syncStats();
+        productMapper.syncStatsByProductId(product.getId());
         return new OrderCreatedResponse(
                 order.getOrderNo(),
                 order.getStatus(),
@@ -116,37 +150,6 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 order.getTotalAmount(),
                 "下单成功，订单已创建",
                 toCardKeyViews(cardKeys));
-    }
-
-    /**
-     * 按联系方式和查单凭证查询订单。
-     */
-    @Override
-    public List<OrderQueryView> queryByContact(QueryOrdersRequest request) {
-        String buyerContact = trim(request.buyerContact());
-        String lookupSecret = trim(request.lookupSecret());
-        String orderNo = trim(request.orderNo());
-        require(
-                (lookupSecret != null && !lookupSecret.isBlank()) || (orderNo != null && !orderNo.isBlank()),
-                "请输入联系方式和查单密码，或使用旧订单号兼容查询");
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("buyerContact", buyerContact);
-        if (lookupSecret != null && !lookupSecret.isBlank()) {
-            params.put("lookupHash", buildLookupHash(buyerContact, lookupSecret));
-        } else {
-            params.put("orderNo", orderNo);
-        }
-        return shopOrderMapper.findByContact(params).stream().map(this::toView).toList();
-    }
-
-    /**
-     * 查询会员已绑定订单，并通过切面记录最近活跃时间。
-     */
-    @Override
-    @TrackMemberSeen
-    public List<OrderQueryView> listByUser(Long userId) {
-        return shopOrderMapper.findByUserId(userId).stream().map(this::toView).toList();
     }
 
     private OrderQueryView toView(ShopOrder order) {

@@ -24,8 +24,8 @@ spring:
   mail:
     host: smtp.qq.com
     port: 465
-    username: ****
-    password: ****
+    username: "****"
+    password: "****"
     protocol: smtp
     default-encoding: utf-8
     properties:
@@ -51,7 +51,7 @@ shop:
     admin:
       username: admin
       password: Admin@123456
-      display-name: 平台管理员
+      display-name: 骞冲彴绠＄悊鍛?
   crypto:
     aes-key: "shop-demo-aes-key-please-change-this"
   cors:
