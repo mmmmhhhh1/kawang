@@ -5,12 +5,13 @@
     <sql id="joinedColumns">
         pa.id, pa.product_id, p.title AS product_title, pa.account_name_masked, pa.account_ciphertext, pa.secret_ciphertext,
         pa.note_ciphertext, pa.account_digest, pa.status, pa.resource_type, pa.card_key_ciphertext, pa.card_key_digest,
-        pa.sale_status, pa.enable_status, pa.assigned_order_id, pa.assigned_at, pa.created_at, pa.updated_at
+        pa.sale_status, pa.enable_status, pa.used_status, pa.assigned_order_id, o.order_no AS assigned_order_no,
+        pa.assigned_at, pa.created_at, pa.updated_at
     </sql>
 
     <sql id="baseColumns">
         id, product_id, account_name_masked, account_ciphertext, secret_ciphertext, note_ciphertext, account_digest,
-        status, resource_type, card_key_ciphertext, card_key_digest, sale_status, enable_status,
+        status, resource_type, card_key_ciphertext, card_key_digest, sale_status, enable_status, used_status,
         assigned_order_id, assigned_at, created_at, updated_at
     </sql>
 
@@ -18,17 +19,65 @@
         SELECT <include refid="joinedColumns" />
         FROM product_account pa
         LEFT JOIN shop_product p ON p.id = pa.product_id
+        LEFT JOIN shop_order o ON o.id = pa.assigned_order_id
         WHERE pa.resource_type = 'CARD_KEY'
-        ORDER BY pa.id DESC
+        ORDER BY pa.created_at DESC, pa.id DESC
     </select>
 
     <select id="findCardKeysByProductId" resultType="org.example.kah.entity.ProductAccount">
         SELECT <include refid="joinedColumns" />
         FROM product_account pa
         LEFT JOIN shop_product p ON p.id = pa.product_id
+        LEFT JOIN shop_order o ON o.id = pa.assigned_order_id
         WHERE pa.resource_type = 'CARD_KEY'
           AND pa.product_id = #{productId}
-        ORDER BY pa.id DESC
+        ORDER BY pa.created_at DESC, pa.id DESC
+    </select>
+
+    <select id="findCursorPage" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="joinedColumns" />
+        FROM product_account pa
+        LEFT JOIN shop_product p ON p.id = pa.product_id
+        LEFT JOIN shop_order o ON o.id = pa.assigned_order_id
+        WHERE pa.resource_type = 'CARD_KEY'
+        <if test="productId != null">
+            AND pa.product_id = #{productId}
+        </if>
+        <if test="saleStatus != null and saleStatus != ''">
+            AND pa.sale_status = #{saleStatus}
+        </if>
+        <if test="enableStatus != null and enableStatus != ''">
+            AND pa.enable_status = #{enableStatus}
+        </if>
+        <if test="usedStatus != null and usedStatus != ''">
+            AND pa.used_status = #{usedStatus}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                p.title LIKE CONCAT(#{keyword}, '%')
+                OR pa.account_name_masked LIKE CONCAT(#{keyword}, '%')
+                OR o.order_no = #{keyword}
+                OR o.order_no LIKE CONCAT(#{keyword}, '%')
+            )
+        </if>
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (
+                pa.created_at &lt; #{cursorCreatedAt}
+                OR (pa.created_at = #{cursorCreatedAt} AND pa.id &lt; #{cursorId})
+            )
+        </if>
+        ORDER BY pa.created_at DESC, pa.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findDetailById" resultType="org.example.kah.entity.ProductAccount">
+        SELECT <include refid="joinedColumns" />
+        FROM product_account pa
+        LEFT JOIN shop_product p ON p.id = pa.product_id
+        LEFT JOIN shop_order o ON o.id = pa.assigned_order_id
+        WHERE pa.id = #{id}
+          AND pa.resource_type = 'CARD_KEY'
+        LIMIT 1
     </select>
 
     <select id="findAllCardKeyProductIds" resultType="long">
@@ -68,10 +117,10 @@
     <insert id="insert" parameterType="org.example.kah.entity.ProductAccount" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO product_account (
             product_id, account_name_masked, account_ciphertext, secret_ciphertext, note_ciphertext, account_digest,
-            status, resource_type, card_key_ciphertext, card_key_digest, sale_status, enable_status
+            status, resource_type, card_key_ciphertext, card_key_digest, sale_status, enable_status, used_status
         ) VALUES (
             #{productId}, #{accountNameMasked}, #{accountCiphertext}, #{secretCiphertext}, #{noteCiphertext}, #{accountDigest},
-            #{status}, #{resourceType}, #{cardKeyCiphertext}, #{cardKeyDigest}, #{saleStatus}, #{enableStatus}
+            #{status}, #{resourceType}, #{cardKeyCiphertext}, #{cardKeyDigest}, #{saleStatus}, #{enableStatus}, #{usedStatus}
         )
     </insert>
 
@@ -92,6 +141,7 @@
         SET resource_type = 'LEGACY_ACCOUNT',
             sale_status = CASE WHEN assigned_order_id IS NULL THEN 'UNSOLD' ELSE 'SOLD' END,
             enable_status = 'DISABLED',
+            used_status = 'UNUSED',
             status = 'DISABLED'
         WHERE resource_type IS NULL OR resource_type &lt;&gt; 'CARD_KEY'
     </update>
@@ -99,19 +149,45 @@
     <update id="assignToOrder">
         UPDATE product_account
         SET sale_status = 'SOLD',
+            used_status = 'UNUSED',
             status = 'ASSIGNED',
             assigned_order_id = #{orderId},
             assigned_at = #{assignedAt}
         WHERE id = #{id}
     </update>
 
+    <update id="assignBatchToOrder">
+        UPDATE product_account
+        SET sale_status = 'SOLD',
+            used_status = 'UNUSED',
+            status = 'ASSIGNED',
+            assigned_order_id = #{orderId},
+            assigned_at = #{assignedAt}
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
     <update id="release">
         UPDATE product_account
         SET sale_status = 'UNSOLD',
+            used_status = 'UNUSED',
             status = CASE WHEN enable_status = 'ENABLED' THEN 'AVAILABLE' ELSE 'DISABLED' END,
             assigned_order_id = NULL,
             assigned_at = NULL
         WHERE id = #{id}
+    </update>
+
+    <update id="releaseByOrderId">
+        UPDATE product_account
+        SET sale_status = 'UNSOLD',
+            used_status = 'UNUSED',
+            status = CASE WHEN enable_status = 'ENABLED' THEN 'AVAILABLE' ELSE 'DISABLED' END,
+            assigned_order_id = NULL,
+            assigned_at = NULL
+        WHERE resource_type = 'CARD_KEY'
+          AND assigned_order_id = #{orderId}
     </update>
 
     <update id="updateEnableStatus">
@@ -122,6 +198,12 @@
                 WHEN #{enableStatus} = 'ENABLED' THEN 'AVAILABLE'
                 ELSE 'DISABLED'
             END
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateUsedStatus">
+        UPDATE product_account
+        SET used_status = #{usedStatus}
         WHERE id = #{id}
     </update>
 

@@ -1,8 +1,11 @@
 package org.example.kah.service.impl;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
+import org.example.kah.common.CursorPageResponse;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.dto.admin.AdminProductSaveRequest;
 import org.example.kah.dto.admin.AdminProductView;
@@ -15,13 +18,10 @@ import org.example.kah.service.AdminProductService;
 import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
+import org.example.kah.util.CursorCodecUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link AdminProductService} 的默认实现。
- * 负责后台商品的增删改查、状态校验和删除前的历史订单保护。
- */
 @Service
 @RequiredArgsConstructor
 public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Long> implements AdminProductService {
@@ -32,13 +32,32 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     private final ProductCacheRefreshService productCacheRefreshService;
     private final ProductLockExecutorService productLockExecutorService;
 
-    /** 读取后台商品列表。 */
     @Override
     public List<AdminProductView> list() {
         return productMapper.findAllProducts().stream().map(this::toView).toList();
     }
 
-    /** 创建商品并初始化库存统计字段。 */
+    @Override
+    public CursorPageResponse<AdminProductView> page(int size, String cursor, String keyword, String status) {
+        int safeSize = normalizeSize(size, 50);
+        CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
+        Map<String, Object> params = new HashMap<>();
+        params.put("status", trim(status));
+        params.put("keyword", trim(keyword));
+        params.put("limit", safeSize + 1);
+        if (decodedCursor != null) {
+            params.put("cursorCreatedAt", decodedCursor.createdAt());
+            params.put("cursorId", decodedCursor.id());
+        }
+        List<ShopProduct> rows = productMapper.findAdminCursorPage(params);
+        boolean hasMore = rows.size() > safeSize;
+        List<ShopProduct> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
+        String nextCursor = hasMore
+                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
+                : null;
+        return new CursorPageResponse<>(pageItems.stream().map(this::toView).toList(), nextCursor, hasMore);
+    }
+
     @Override
     public AdminProductView create(AdminProductSaveRequest request) {
         ensureStatus(request.status());
@@ -59,7 +78,6 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         return toView(productMapper.findById(product.getId()));
     }
 
-    /** 更新商品基础信息。 */
     @Override
     public AdminProductView update(Long id, AdminProductSaveRequest request) {
         ensureStatus(request.status());
@@ -74,25 +92,19 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         return toView(productMapper.findById(id));
     }
 
-    /** 切换商品上下架状态。 */
     @Override
     public AdminProductView updateStatus(Long id, String status) {
         ensureStatus(status);
         requireById(id);
-        AdminProductView view = productLockExecutorService.execute(
+        return productLockExecutorService.execute(
                 id,
                 () -> {
                     productMapper.updateStatus(id, status);
                     return toView(productMapper.findById(id));
                 },
                 () -> productCacheRefreshService.refreshBaseAfterWrite(id));
-        return view;
     }
 
-    /**
-     * 删除商品。
-     * 已有关联订单的商品不允许删除；没有历史订单的商品会连同卡密池一起删除。
-     */
     @Override
     public void delete(Long id) {
         productLockExecutorService.execute(
@@ -101,19 +113,16 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
                 () -> productCacheRefreshService.removeProductAfterDelete(id));
     }
 
-    /** 按主键查询商品实体。 */
     @Override
     protected ShopProduct findEntityById(Long id) {
         return productMapper.findById(id);
     }
 
-    /** 返回实体名称供异常提示复用。 */
     @Override
     protected String entityLabel() {
         return "商品";
     }
 
-    /** 将请求字段回填到商品实体。 */
     private void fillProduct(ShopProduct product, AdminProductSaveRequest request) {
         product.setSku(trim(request.sku()));
         product.setTitle(trim(request.title()));
@@ -135,7 +144,6 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         productMapper.deleteById(id);
     }
 
-    /** 将实体映射为后台商品视图。 */
     private AdminProductView toView(ShopProduct product) {
         return new AdminProductView(
                 product.getId(),
@@ -152,7 +160,6 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
                 product.getUpdatedAt());
     }
 
-    /** 校验商品状态是否合法。 */
     private void ensureStatus(String status) {
         if (!ProductStatus.ACTIVE.equals(status) && !ProductStatus.INACTIVE.equals(status)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "商品状态非法");

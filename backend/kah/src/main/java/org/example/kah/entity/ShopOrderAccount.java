@@ -28,6 +28,9 @@ public class ShopOrderAccount {
     /** 当前卡密启用状态，来源于联表查询。 */
     private String enableStatus;
 
+    /** 当前卡密使用状态，来源于联表查询。 */
+    private String usedStatus;
+
     /** 创建时间。 */
     private LocalDateTime createdAt;
 }

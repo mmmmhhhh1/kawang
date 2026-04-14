@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.PaymentQrConfigMapper">
+
+    <sql id="columns">
+        q.id, q.name, q.image_path, q.status, q.created_by, q.activated_by, q.activated_at, q.created_at, q.updated_at,
+        creator.display_name AS created_by_name, activator.display_name AS activated_by_name
+    </sql>
+
+    <select id="findAll" resultType="org.example.kah.entity.PaymentQrConfig">
+        SELECT <include refid="columns" />
+        FROM payment_qr_config q
+        LEFT JOIN admin_user creator ON creator.id = q.created_by
+        LEFT JOIN admin_user activator ON activator.id = q.activated_by
+        ORDER BY CASE WHEN q.status = 'ACTIVE' THEN 0 ELSE 1 END ASC, q.created_at DESC, q.id DESC
+    </select>
+
+    <select id="findCursorPage" resultType="org.example.kah.entity.PaymentQrConfig">
+        SELECT <include refid="columns" />
+        FROM payment_qr_config q
+        LEFT JOIN admin_user creator ON creator.id = q.created_by
+        LEFT JOIN admin_user activator ON activator.id = q.activated_by
+        <where>
+            <if test="cursorCreatedAt != null and cursorId != null">
+                AND (
+                    q.created_at &lt; #{cursorCreatedAt}
+                    OR (q.created_at = #{cursorCreatedAt} AND q.id &lt; #{cursorId})
+                )
+            </if>
+        </where>
+        ORDER BY q.created_at DESC, q.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findById" resultType="org.example.kah.entity.PaymentQrConfig">
+        SELECT <include refid="columns" />
+        FROM payment_qr_config q
+        LEFT JOIN admin_user creator ON creator.id = q.created_by
+        LEFT JOIN admin_user activator ON activator.id = q.activated_by
+        WHERE q.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findActive" resultType="org.example.kah.entity.PaymentQrConfig">
+        SELECT <include refid="columns" />
+        FROM payment_qr_config q
+        LEFT JOIN admin_user creator ON creator.id = q.created_by
+        LEFT JOIN admin_user activator ON activator.id = q.activated_by
+        WHERE q.status = 'ACTIVE'
+        ORDER BY q.activated_at DESC, q.id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="org.example.kah.entity.PaymentQrConfig" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO payment_qr_config (
+            name, image_path, status, created_by, activated_by, activated_at
+        ) VALUES (
+            #{name}, #{imagePath}, #{status}, #{createdBy}, #{activatedBy}, #{activatedAt}
+        )
+    </insert>
+
+    <update id="disableAll">
+        UPDATE payment_qr_config
+        SET status = 'DISABLED'
+    </update>
+
+    <update id="activate">
+        UPDATE payment_qr_config
+        SET status = 'ACTIVE',
+            activated_by = #{activatedBy},
+            activated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="disable">
+        UPDATE payment_qr_config
+        SET status = 'DISABLED'
+        WHERE id = #{id}
+    </update>
+</mapper>

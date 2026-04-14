@@ -19,7 +19,10 @@ public class ProductAccount {
     /** 联表查询时带出的商品标题。 */
     private String productTitle;
 
-    /** 旧账号池兼容字段，用于旧表结构的非空约束和历史数据保留。 */
+    /** 联表查询时带出的购买订单号。 */
+    private String assignedOrderNo;
+
+    /** 旧账号池兼容字段，用于历史结构和非空约束。 */
     private String accountNameMasked;
 
     /** 旧账号池兼容字段。 */
@@ -34,10 +37,10 @@ public class ProductAccount {
     /** 旧账号池兼容摘要字段。 */
     private String accountDigest;
 
-    /** 旧单状态兼容字段，不再作为卡密池主业务状态来源。 */
+    /** 旧单状态兼容字段。 */
     private String status;
 
-    /** 资源类型，区分卡密和历史账号。 */
+    /** 资源类型，用于区分卡密和历史账号。 */
     private String resourceType;
 
     /** 卡密正文密文。 */
@@ -46,11 +49,14 @@ public class ProductAccount {
     /** 卡密摘要，用于同商品内防重复导入。 */
     private String cardKeyDigest;
 
-    /** 售卖状态，表示是否已经卖出。 */
+    /** 销售状态，表示是否已经卖出。 */
     private String saleStatus;
 
-    /** 启用状态，表示当前卡密是否允许参与销售。 */
+    /** 启用状态，表示是否允许继续参与销售。 */
     private String enableStatus;
+
+    /** 使用状态，表示已售卡密是否已经被用户实际使用。 */
+    private String usedStatus;
 
     /** 已分配到的订单主键。 */
     private Long assignedOrderId;

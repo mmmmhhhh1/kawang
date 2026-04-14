@@ -1,11 +1,15 @@
 package org.example.kah.service.impl;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
+import org.example.kah.common.CursorPageResponse;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.dto.admin.AdminAccountCreateRequest;
+import org.example.kah.dto.admin.AdminAccountDetailView;
 import org.example.kah.dto.admin.AdminAccountItemRequest;
 import org.example.kah.dto.admin.AdminAccountView;
 import org.example.kah.entity.AccountStatus;
@@ -14,6 +18,7 @@ import org.example.kah.entity.ProductAccount;
 import org.example.kah.entity.ResourceType;
 import org.example.kah.entity.SaleStatus;
 import org.example.kah.entity.ShopProduct;
+import org.example.kah.entity.UsedStatus;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.service.AdminAccountService;
@@ -21,14 +26,11 @@ import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.example.kah.util.CryptoService;
+import org.example.kah.util.CursorCodecUtils;
 import org.example.kah.util.MaskingUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link AdminAccountService} 的默认实现。
- * 负责卡密池管理，并在导入、启停、删除后同步商品库存统计与缓存。
- */
 @Service
 @RequiredArgsConstructor
 public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount, Long> implements AdminAccountService {
@@ -39,20 +41,64 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
     private final ProductLockExecutorService productLockExecutorService;
     private final ProductCacheRefreshService productCacheRefreshService;
 
-    /** 查询卡密池列表。 */
     @Override
     public List<AdminAccountView> list(Long productId, String saleStatus, String enableStatus) {
-        List<ProductAccount> cardKeys = productId == null
-                ? productAccountMapper.findAllCardKeys()
-                : productAccountMapper.findCardKeysByProductId(productId);
-        return cardKeys.stream()
-                .filter(item -> saleStatus == null || saleStatus.isBlank() || saleStatus.equals(item.getSaleStatus()))
-                .filter(item -> enableStatus == null || enableStatus.isBlank() || enableStatus.equals(item.getEnableStatus()))
-                .map(this::toView)
-                .toList();
+        return queryViews(productId, saleStatus, enableStatus);
     }
 
-    /** 批量导入卡密。 */
+    @Override
+    public CursorPageResponse<AdminAccountView> page(
+            int size,
+            String cursor,
+            Long productId,
+            String saleStatus,
+            String enableStatus,
+            String usedStatus,
+            String keyword) {
+        int safeSize = normalizeSize(size, 50);
+        CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
+        Map<String, Object> params = new HashMap<>();
+        params.put("productId", productId);
+        params.put("saleStatus", trim(saleStatus));
+        params.put("enableStatus", trim(enableStatus));
+        params.put("usedStatus", trim(usedStatus));
+        params.put("keyword", trim(keyword));
+        params.put("limit", safeSize + 1);
+        if (decodedCursor != null) {
+            params.put("cursorCreatedAt", decodedCursor.createdAt());
+            params.put("cursorId", decodedCursor.id());
+        }
+        List<ProductAccount> rows = productAccountMapper.findCursorPage(params);
+        boolean hasMore = rows.size() > safeSize;
+        List<ProductAccount> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
+        String nextCursor = hasMore
+                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
+                : null;
+        return new CursorPageResponse<>(pageItems.stream().map(this::toView).toList(), nextCursor, hasMore);
+    }
+
+    @Override
+    public AdminAccountDetailView detail(Long id) {
+        ProductAccount account = productAccountMapper.findDetailById(id);
+        if (account == null || !ResourceType.CARD_KEY.equals(account.getResourceType())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "卡密不存在");
+        }
+        return new AdminAccountDetailView(
+                account.getId(),
+                account.getProductId(),
+                account.getProductTitle(),
+                decryptCardKey(account),
+                account.getSaleStatus(),
+                account.getEnableStatus(),
+                account.getUsedStatus(),
+                account.getAssignedOrderId(),
+                account.getAssignedOrderNo(),
+                account.getAssignedAt(),
+                account.getCreatedAt(),
+                account.getUpdatedAt(),
+                decryptNote(account));
+    }
+
     @Override
     public List<AdminAccountView> create(AdminAccountCreateRequest request) {
         return productLockExecutorService.execute(
@@ -61,7 +107,6 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
                 () -> productCacheRefreshService.refreshStatsAfterWrite(request.productId()));
     }
 
-    /** 更新单条卡密启用状态。 */
     @Override
     public AdminAccountView updateStatus(Long id, String enableStatus) {
         ProductAccount account = requireCardKey(id);
@@ -71,22 +116,22 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
                 () -> productCacheRefreshService.refreshStatsAfterWrite(account.getProductId()));
     }
 
-    /** 批量停用卡密。 */
+    @Override
+    public AdminAccountView updateUsedStatus(Long id, String usedStatus) {
+        ProductAccount account = requireCardKey(id);
+        return productLockExecutorService.execute(account.getProductId(), () -> doUpdateUsedStatus(id, usedStatus), null);
+    }
+
     @Override
     public int bulkDisable(String scope, Long productId) {
         return handleBulkStatus(scope, productId, false);
     }
 
-    /** 批量启用卡密。 */
     @Override
     public int bulkEnable(String scope, Long productId) {
         return handleBulkStatus(scope, productId, true);
     }
 
-    /**
-     * 删除单条卡密。
-     * 只允许删除未售出的卡密；已售卡密需要保留历史发货痕迹，只允许停用。
-     */
     @Override
     public void delete(Long id) {
         ProductAccount account = requireCardKey(id);
@@ -96,16 +141,25 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
                 () -> productCacheRefreshService.refreshStatsAfterWrite(account.getProductId()));
     }
 
-    /** 按主键查询资源实体。 */
     @Override
     protected ProductAccount findEntityById(Long id) {
         return productAccountMapper.findById(id);
     }
 
-    /** 返回实体名称供异常提示复用。 */
     @Override
     protected String entityLabel() {
         return "卡密";
+    }
+
+    private List<AdminAccountView> queryViews(Long productId, String saleStatus, String enableStatus) {
+        List<ProductAccount> cardKeys = productId == null
+                ? productAccountMapper.findAllCardKeys()
+                : productAccountMapper.findCardKeysByProductId(productId);
+        return cardKeys.stream()
+                .filter(item -> saleStatus == null || saleStatus.isBlank() || saleStatus.equals(item.getSaleStatus()))
+                .filter(item -> enableStatus == null || enableStatus.isBlank() || enableStatus.equals(item.getEnableStatus()))
+                .map(this::toView)
+                .toList();
     }
 
     private List<AdminAccountView> doCreate(AdminAccountCreateRequest request) {
@@ -130,14 +184,16 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             account.setCardKeyDigest(cryptoService.digest(request.productId() + ":" + cardKey));
             account.setSaleStatus(SaleStatus.UNSOLD);
             account.setEnableStatus(EnableStatus.ENABLED);
+            account.setUsedStatus(UsedStatus.UNUSED);
             try {
                 productAccountMapper.insert(account);
             } catch (DuplicateKeyException exception) {
                 throw new BusinessException(ErrorCode.BAD_REQUEST, "存在重复卡密：" + cardKey);
             }
-            ProductAccount createdAccount = productAccountMapper.findById(account.getId());
-            createdAccount.setProductTitle(product.getTitle());
-            created.add(toView(createdAccount));
+            ProductAccount createdAccount = productAccountMapper.findDetailById(account.getId());
+            if (createdAccount != null) {
+                created.add(toView(createdAccount));
+            }
         }
 
         productMapper.syncStatsByProductId(request.productId());
@@ -156,9 +212,23 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             productMapper.syncStatsByProductId(account.getProductId());
         }
 
-        ProductAccount latest = productAccountMapper.findById(id);
-        latest.setProductTitle(resolveProductTitle(latest.getProductId()));
-        return toView(latest);
+        return toView(productAccountMapper.findDetailById(id));
+    }
+
+    private AdminAccountView doUpdateUsedStatus(Long id, String usedStatus) {
+        String safeUsedStatus = trim(usedStatus);
+        if (!UsedStatus.USED.equals(safeUsedStatus) && !UsedStatus.UNUSED.equals(safeUsedStatus)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "仅支持 USED 或 UNUSED");
+        }
+
+        ProductAccount account = requireCardKey(id);
+        if (!SaleStatus.SOLD.equals(account.getSaleStatus())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "未售出卡密不能修改使用状态");
+        }
+        if (!safeUsedStatus.equals(account.getUsedStatus())) {
+            productAccountMapper.updateUsedStatus(id, safeUsedStatus);
+        }
+        return toView(productAccountMapper.findDetailById(id));
     }
 
     private int handleBulkStatus(String scope, Long productId, boolean enable) {
@@ -204,7 +274,6 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         productMapper.syncStatsByProductId(account.getProductId());
     }
 
-    /** 校验记录属于卡密池主流程。 */
     private ProductAccount requireCardKey(Long id) {
         ProductAccount account = requireById(id);
         if (!ResourceType.CARD_KEY.equals(account.getResourceType())) {
@@ -213,13 +282,6 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         return account;
     }
 
-    /** 解析卡密所属商品标题。 */
-    private String resolveProductTitle(Long productId) {
-        ShopProduct product = productMapper.findById(productId);
-        return product == null ? "-" : product.getTitle();
-    }
-
-    /** 将资源实体映射为后台视图。 */
     private AdminAccountView toView(ProductAccount account) {
         return new AdminAccountView(
                 account.getId(),
@@ -228,16 +290,24 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
                 decryptCardKey(account),
                 account.getSaleStatus(),
                 account.getEnableStatus(),
+                account.getUsedStatus(),
                 account.getAssignedOrderId(),
+                account.getAssignedOrderNo(),
                 account.getAssignedAt(),
                 account.getCreatedAt());
     }
 
-    /** 解密卡密正文。 */
     private String decryptCardKey(ProductAccount account) {
         if (account.getCardKeyCiphertext() != null && !account.getCardKeyCiphertext().isBlank()) {
             return cryptoService.decrypt(account.getCardKeyCiphertext());
         }
         return account.getAccountNameMasked();
+    }
+
+    private String decryptNote(ProductAccount account) {
+        if (account.getNoteCiphertext() == null || account.getNoteCiphertext().isBlank()) {
+            return null;
+        }
+        return cryptoService.decrypt(account.getNoteCiphertext());
     }
 }

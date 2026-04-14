@@ -23,7 +23,28 @@
     <select id="findAll" resultType="org.example.kah.entity.AdminUser">
         SELECT <include refid="adminColumns" />
         FROM admin_user
-        ORDER BY id ASC
+        ORDER BY created_at DESC, id DESC
+    </select>
+
+    <select id="findAdminCursorPage" resultType="org.example.kah.entity.AdminUser">
+        SELECT <include refid="adminColumns" />
+        FROM admin_user
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    username LIKE CONCAT(#{keyword}, '%')
+                    OR display_name LIKE CONCAT(#{keyword}, '%')
+                )
+            </if>
+            <if test="cursorCreatedAt != null and cursorId != null">
+                AND (
+                    created_at &lt; #{cursorCreatedAt}
+                    OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
+                )
+            </if>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
     </select>
 
     <insert id="insert" parameterType="org.example.kah.entity.AdminUser" useGeneratedKeys="true" keyProperty="id">

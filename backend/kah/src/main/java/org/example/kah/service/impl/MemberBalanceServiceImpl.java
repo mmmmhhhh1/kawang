@@ -1,0 +1,100 @@
+package org.example.kah.service.impl;
+
+import java.math.BigDecimal;
+import lombok.RequiredArgsConstructor;
+import org.example.kah.common.BusinessException;
+import org.example.kah.common.ErrorCode;
+import org.example.kah.entity.BalanceBizType;
+import org.example.kah.entity.BalanceDirection;
+import org.example.kah.entity.MemberBalanceFlow;
+import org.example.kah.entity.MemberStatus;
+import org.example.kah.entity.MemberUser;
+import org.example.kah.mapper.MemberBalanceFlowMapper;
+import org.example.kah.mapper.MemberUserMapper;
+import org.example.kah.service.MemberBalanceService;
+import org.example.kah.service.impl.base.AbstractServiceSupport;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class MemberBalanceServiceImpl extends AbstractServiceSupport implements MemberBalanceService {
+
+    private final MemberUserMapper memberUserMapper;
+    private final MemberBalanceFlowMapper memberBalanceFlowMapper;
+
+    @Override
+    public MemberUser lockActiveMember(Long userId) {
+        MemberUser memberUser = memberUserMapper.lockById(userId);
+        if (memberUser == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "会员不存在");
+        }
+        require(MemberStatus.ACTIVE.equals(memberUser.getStatus()), ErrorCode.FORBIDDEN, "会员账号已被禁用");
+        if (memberUser.getBalance() == null) {
+            memberUser.setBalance(BigDecimal.ZERO);
+        }
+        return memberUser;
+    }
+
+    @Override
+    public MemberUser debitForOrder(MemberUser memberUser, BigDecimal amount, String bizNo, String remark) {
+        require(amount != null && amount.compareTo(BigDecimal.ZERO) > 0, "扣款金额必须大于 0");
+        require(
+                memberBalanceFlowMapper.countByBiz(BalanceBizType.ORDER_DEBIT, bizNo, BalanceDirection.OUT) == 0,
+                ErrorCode.BAD_REQUEST,
+                "订单扣款已经处理过了");
+        BigDecimal before = safeBalance(memberUser.getBalance());
+        BigDecimal after = before.subtract(amount);
+        require(after.compareTo(BigDecimal.ZERO) >= 0, "余额不足");
+        saveFlow(memberUser.getId(), BalanceBizType.ORDER_DEBIT, bizNo, BalanceDirection.OUT, amount, before, after, remark);
+        memberUserMapper.updateBalance(memberUser.getId(), after);
+        memberUser.setBalance(after);
+        return memberUser;
+    }
+
+    @Override
+    public MemberUser creditForRecharge(MemberUser memberUser, BigDecimal amount, String bizNo, String remark) {
+        require(amount != null && amount.compareTo(BigDecimal.ZERO) > 0, "充值金额必须大于 0");
+        require(
+                memberBalanceFlowMapper.countByBiz(BalanceBizType.RECHARGE_APPROVED, bizNo, BalanceDirection.IN) == 0,
+                ErrorCode.BAD_REQUEST,
+                "这笔充值已经入账");
+        BigDecimal before = safeBalance(memberUser.getBalance());
+        BigDecimal after = before.add(amount);
+        saveFlow(memberUser.getId(), BalanceBizType.RECHARGE_APPROVED, bizNo, BalanceDirection.IN, amount, before, after, remark);
+        memberUserMapper.updateBalance(memberUser.getId(), after);
+        memberUser.setBalance(after);
+        return memberUser;
+    }
+
+    @Override
+    public MemberUser creditForRefund(MemberUser memberUser, BigDecimal amount, String bizNo, String remark) {
+        require(amount != null && amount.compareTo(BigDecimal.ZERO) > 0, "退款金额必须大于 0");
+        require(
+                memberBalanceFlowMapper.countByBiz(BalanceBizType.ORDER_REFUND, bizNo, BalanceDirection.IN) == 0,
+                ErrorCode.BAD_REQUEST,
+                "订单退款已经处理过了");
+        BigDecimal before = safeBalance(memberUser.getBalance());
+        BigDecimal after = before.add(amount);
+        saveFlow(memberUser.getId(), BalanceBizType.ORDER_REFUND, bizNo, BalanceDirection.IN, amount, before, after, remark);
+        memberUserMapper.updateBalance(memberUser.getId(), after);
+        memberUser.setBalance(after);
+        return memberUser;
+    }
+
+    private void saveFlow(Long userId, String bizType, String bizNo, String direction, BigDecimal amount, BigDecimal before, BigDecimal after, String remark) {
+        MemberBalanceFlow flow = new MemberBalanceFlow();
+        flow.setUserId(userId);
+        flow.setBizType(bizType);
+        flow.setBizNo(bizNo);
+        flow.setDirection(direction);
+        flow.setAmount(amount);
+        flow.setBalanceBefore(before);
+        flow.setBalanceAfter(after);
+        flow.setRemark(remark);
+        memberBalanceFlowMapper.insert(flow);
+    }
+
+    private BigDecimal safeBalance(BigDecimal balance) {
+        return balance == null ? BigDecimal.ZERO : balance;
+    }
+}

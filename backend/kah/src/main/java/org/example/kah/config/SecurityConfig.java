@@ -45,14 +45,20 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/products/**",
                                 "/api/notices",
-                                "/api/orders",
                                 "/api/orders/query",
                                 "/api/auth/register",
                                 "/api/auth/login",
                                 "/api/auth/mail/**",
-                                "/api/admin/auth/login")
+                                "/api/public/payment/alipay-qr",
+                                "/api/admin/auth/login",
+                                "/ws/admin/notifications")
                         .permitAll()
-                        .requestMatchers("/api/auth/me", "/api/auth/orders").hasRole("MEMBER")
+                        .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("MEMBER")
+                        .requestMatchers(
+                                "/api/auth/me",
+                                "/api/auth/orders",
+                                "/api/auth/recharges/**")
+                        .hasRole("MEMBER")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())
                 .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)

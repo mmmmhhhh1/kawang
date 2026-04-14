@@ -1,5 +1,6 @@
 package org.example.kah.service.impl;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.annotation.TrackMemberSeen;
@@ -20,10 +21,6 @@ import org.example.kah.service.impl.base.AbstractCrudService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link MemberUserService} 默认实现。
- * 负责会员注册、登录以及当前会员资料读取。
- */
 @Service
 @RequiredArgsConstructor
 public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long> implements MemberUserService {
@@ -33,9 +30,6 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
     private final JwtService jwtService;
     private final MemberActivityCacheService memberActivityCacheService;
 
-    /**
-     * 注册会员并直接返回登录态。
-     */
     @Override
     public MemberAuthResponse register(MemberRegisterRequest request) {
         String username = trim(request.username());
@@ -48,6 +42,7 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         memberUser.setUsername(username);
         memberUser.setPasswordHash(passwordEncoder.encode(request.password()));
         memberUser.setStatus(MemberStatus.ACTIVE);
+        memberUser.setBalance(BigDecimal.ZERO);
         memberUser.setLastLoginAt(now);
         memberUser.setLastSeenAt(now);
         memberUserMapper.insert(memberUser);
@@ -55,9 +50,6 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         return toAuthResponse(memberUser);
     }
 
-    /**
-     * 校验会员账号密码并返回登录态。
-     */
     @Override
     public MemberAuthResponse login(MemberLoginRequest request) {
         MemberUser memberUser = memberUserMapper.findByUsername(trim(request.username()));
@@ -73,14 +65,15 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         return toAuthResponse(memberUser);
     }
 
-    /**
-     * 读取当前登录会员资料，并通过切面记录最近活跃时间。
-     */
     @Override
     @TrackMemberSeen
     public MemberProfileView me(AuthenticatedUser currentUser) {
         MemberUser memberUser = requireById(currentUser.userId());
-        return new MemberProfileView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail());
+        return new MemberProfileView(
+                memberUser.getId(),
+                memberUser.getUsername(),
+                memberUser.getMail(),
+                memberUser.getBalance() == null ? BigDecimal.ZERO : memberUser.getBalance());
     }
 
     @Override
@@ -97,6 +90,10 @@ public class MemberUserServiceImpl extends AbstractCrudService<MemberUser, Long>
         return new MemberAuthResponse(
                 jwtService.createMemberToken(memberUser),
                 "Bearer",
-                new MemberProfileView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail()));
+                new MemberProfileView(
+                        memberUser.getId(),
+                        memberUser.getUsername(),
+                        memberUser.getMail(),
+                        memberUser.getBalance() == null ? BigDecimal.ZERO : memberUser.getBalance()));
     }
 }

@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS product_account (
     card_key_digest VARCHAR(128) NULL,
     sale_status VARCHAR(16) NOT NULL DEFAULT 'UNSOLD',
     enable_status VARCHAR(16) NOT NULL DEFAULT 'DISABLED',
+    used_status VARCHAR(16) NOT NULL DEFAULT 'UNUSED',
     assigned_order_id BIGINT NULL,
     assigned_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -86,6 +87,7 @@ CREATE TABLE IF NOT EXISTS product_account (
     UNIQUE KEY uk_product_account_card_key_digest (product_id, card_key_digest),
     KEY idx_product_account_product_status (product_id, status),
     KEY idx_product_account_card_pool (product_id, resource_type, sale_status, enable_status),
+    KEY idx_product_account_hot_sale_pick (product_id, resource_type, sale_status, enable_status, id),
     KEY idx_product_account_assigned_order (assigned_order_id)
 );
 
@@ -311,6 +313,22 @@ PREPARE stmt_add_product_account_enable_status FROM @product_account_enable_stat
 EXECUTE stmt_add_product_account_enable_status;
 DEALLOCATE PREPARE stmt_add_product_account_enable_status;
 
+SET @product_account_has_used_status = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_account'
+      AND COLUMN_NAME = 'used_status'
+);
+SET @product_account_used_status_sql = IF(
+    @product_account_has_used_status = 0,
+    'ALTER TABLE product_account ADD COLUMN used_status VARCHAR(16) NOT NULL DEFAULT ''UNUSED'' AFTER enable_status',
+    'SELECT 1'
+);
+PREPARE stmt_add_product_account_used_status FROM @product_account_used_status_sql;
+EXECUTE stmt_add_product_account_used_status;
+DEALLOCATE PREPARE stmt_add_product_account_used_status;
+
 SET @product_account_has_card_key_digest_index = (
     SELECT COUNT(*)
     FROM information_schema.STATISTICS
@@ -363,5 +381,338 @@ UPDATE product_account
 SET resource_type = 'LEGACY_ACCOUNT',
     sale_status = CASE WHEN assigned_order_id IS NULL THEN 'UNSOLD' ELSE 'SOLD' END,
     enable_status = 'DISABLED',
+    used_status = 'UNUSED',
     status = 'DISABLED'
 WHERE resource_type IS NULL OR resource_type <> 'CARD_KEY';
+CREATE TABLE IF NOT EXISTS member_balance_flow (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    biz_type VARCHAR(32) NOT NULL,
+    biz_no VARCHAR(64) NOT NULL,
+    direction VARCHAR(8) NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    balance_before DECIMAL(10, 2) NOT NULL,
+    balance_after DECIMAL(10, 2) NOT NULL,
+    remark VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_member_balance_flow_biz (biz_type, biz_no, direction),
+    KEY idx_member_balance_flow_user_created (user_id, created_at, id)
+);
+
+CREATE TABLE IF NOT EXISTS member_recharge_request (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    request_no VARCHAR(64) NOT NULL,
+    user_id BIGINT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+    screenshot_path VARCHAR(255) NOT NULL,
+    payer_remark VARCHAR(255) NULL,
+    reviewed_by BIGINT NULL,
+    reviewed_at DATETIME NULL,
+    reject_reason VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_member_recharge_request_no (request_no),
+    KEY idx_member_recharge_user_created (user_id, created_at, id),
+    KEY idx_member_recharge_status_created (status, created_at, id)
+);
+
+CREATE TABLE IF NOT EXISTS payment_qr_config (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(80) NOT NULL,
+    image_path VARCHAR(255) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'DISABLED',
+    created_by BIGINT NOT NULL,
+    activated_by BIGINT NULL,
+    activated_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_payment_qr_status_created (status, created_at, id)
+);
+
+SET @member_user_has_balance = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_user'
+      AND COLUMN_NAME = 'balance'
+);
+SET @member_user_balance_sql = IF(
+    @member_user_has_balance = 0,
+    'ALTER TABLE member_user ADD COLUMN balance DECIMAL(10, 2) NOT NULL DEFAULT 0 AFTER status',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_user_balance FROM @member_user_balance_sql;
+EXECUTE stmt_add_member_user_balance;
+DEALLOCATE PREPARE stmt_add_member_user_balance;
+
+SET @shop_order_has_payment_method = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_order'
+      AND COLUMN_NAME = 'payment_method'
+);
+SET @shop_order_payment_method_sql = IF(
+    @shop_order_has_payment_method = 0,
+    'ALTER TABLE shop_order ADD COLUMN payment_method VARCHAR(16) NOT NULL DEFAULT ''LEGACY'' AFTER total_amount',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_order_payment_method FROM @shop_order_payment_method_sql;
+EXECUTE stmt_add_shop_order_payment_method;
+DEALLOCATE PREPARE stmt_add_shop_order_payment_method;
+
+SET @shop_order_has_balance_amount = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_order'
+      AND COLUMN_NAME = 'balance_amount'
+);
+SET @shop_order_balance_amount_sql = IF(
+    @shop_order_has_balance_amount = 0,
+    'ALTER TABLE shop_order ADD COLUMN balance_amount DECIMAL(10, 2) NOT NULL DEFAULT 0 AFTER payment_method',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_order_balance_amount FROM @shop_order_balance_amount_sql;
+EXECUTE stmt_add_shop_order_balance_amount;
+DEALLOCATE PREPARE stmt_add_shop_order_balance_amount;
+
+SET @shop_order_has_refunded_at = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_order'
+      AND COLUMN_NAME = 'refunded_at'
+);
+SET @shop_order_refunded_at_sql = IF(
+    @shop_order_has_refunded_at = 0,
+    'ALTER TABLE shop_order ADD COLUMN refunded_at DATETIME NULL AFTER closed_at',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_order_refunded_at FROM @shop_order_refunded_at_sql;
+EXECUTE stmt_add_shop_order_refunded_at;
+DEALLOCATE PREPARE stmt_add_shop_order_refunded_at;
+
+SET @shop_order_has_cursor_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_order'
+      AND INDEX_NAME = 'idx_shop_order_created_id'
+);
+SET @shop_order_cursor_index_sql = IF(
+    @shop_order_has_cursor_index = 0,
+    'ALTER TABLE shop_order ADD KEY idx_shop_order_created_id (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_order_cursor_index FROM @shop_order_cursor_index_sql;
+EXECUTE stmt_add_shop_order_cursor_index;
+DEALLOCATE PREPARE stmt_add_shop_order_cursor_index;
+
+SET @shop_order_has_status_cursor_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_order'
+      AND INDEX_NAME = 'idx_shop_order_status_product_created'
+);
+SET @shop_order_status_cursor_index_sql = IF(
+    @shop_order_has_status_cursor_index = 0,
+    'ALTER TABLE shop_order ADD KEY idx_shop_order_status_product_created (status, product_id, created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_order_status_cursor_index FROM @shop_order_status_cursor_index_sql;
+EXECUTE stmt_add_shop_order_status_cursor_index;
+DEALLOCATE PREPARE stmt_add_shop_order_status_cursor_index;
+
+SET @product_account_has_created_cursor_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_account'
+      AND INDEX_NAME = 'idx_product_account_resource_created'
+);
+SET @product_account_created_cursor_index_sql = IF(
+    @product_account_has_created_cursor_index = 0,
+    'ALTER TABLE product_account ADD KEY idx_product_account_resource_created (resource_type, created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_product_account_created_cursor_index FROM @product_account_created_cursor_index_sql;
+EXECUTE stmt_add_product_account_created_cursor_index;
+DEALLOCATE PREPARE stmt_add_product_account_created_cursor_index;
+
+SET @product_account_has_sale_enable_used_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_account'
+      AND INDEX_NAME = 'idx_product_account_product_sale_enable_used'
+);
+SET @product_account_sale_enable_used_index_sql = IF(
+    @product_account_has_sale_enable_used_index = 0,
+    'ALTER TABLE product_account ADD KEY idx_product_account_product_sale_enable_used (product_id, sale_status, enable_status, used_status, created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_product_account_sale_enable_used_index FROM @product_account_sale_enable_used_index_sql;
+EXECUTE stmt_add_product_account_sale_enable_used_index;
+DEALLOCATE PREPARE stmt_add_product_account_sale_enable_used_index;
+
+SET @product_account_has_hot_sale_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_account'
+      AND INDEX_NAME = 'idx_product_account_hot_sale_pick'
+);
+SET @product_account_hot_sale_index_sql = IF(
+    @product_account_has_hot_sale_index = 0,
+    'ALTER TABLE product_account ADD KEY idx_product_account_hot_sale_pick (product_id, resource_type, sale_status, enable_status, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_product_account_hot_sale_index FROM @product_account_hot_sale_index_sql;
+EXECUTE stmt_add_product_account_hot_sale_index;
+DEALLOCATE PREPARE stmt_add_product_account_hot_sale_index;
+
+SET @member_user_has_status_created_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_user'
+      AND INDEX_NAME = 'idx_member_user_status_created'
+);
+SET @member_user_status_created_index_sql = IF(
+    @member_user_has_status_created_index = 0,
+    'ALTER TABLE member_user ADD KEY idx_member_user_status_created (status, created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_user_status_created_index FROM @member_user_status_created_index_sql;
+EXECUTE stmt_add_member_user_status_created_index;
+DEALLOCATE PREPARE stmt_add_member_user_status_created_index;
+
+SET @admin_user_has_created_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'admin_user'
+      AND INDEX_NAME = 'idx_admin_user_created'
+);
+SET @admin_user_created_index_sql = IF(
+    @admin_user_has_created_index = 0,
+    'ALTER TABLE admin_user ADD KEY idx_admin_user_created (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_admin_user_created_index FROM @admin_user_created_index_sql;
+EXECUTE stmt_add_admin_user_created_index;
+DEALLOCATE PREPARE stmt_add_admin_user_created_index;
+SET @shop_product_has_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_product'
+      AND INDEX_NAME = 'idx_shop_product_created_id'
+);
+SET @shop_product_created_id_index_sql = IF(
+    @shop_product_has_created_id_index = 0,
+    'ALTER TABLE shop_product ADD KEY idx_shop_product_created_id (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_product_created_id_index FROM @shop_product_created_id_index_sql;
+EXECUTE stmt_add_shop_product_created_id_index;
+DEALLOCATE PREPARE stmt_add_shop_product_created_id_index;
+
+SET @shop_product_has_status_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_product'
+      AND INDEX_NAME = 'idx_shop_product_status_created_id'
+);
+SET @shop_product_status_created_id_index_sql = IF(
+    @shop_product_has_status_created_id_index = 0,
+    'ALTER TABLE shop_product ADD KEY idx_shop_product_status_created_id (status, created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_product_status_created_id_index FROM @shop_product_status_created_id_index_sql;
+EXECUTE stmt_add_shop_product_status_created_id_index;
+DEALLOCATE PREPARE stmt_add_shop_product_status_created_id_index;
+
+SET @shop_notice_has_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_notice'
+      AND INDEX_NAME = 'idx_shop_notice_created_id'
+);
+SET @shop_notice_created_id_index_sql = IF(
+    @shop_notice_has_created_id_index = 0,
+    'ALTER TABLE shop_notice ADD KEY idx_shop_notice_created_id (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_notice_created_id_index FROM @shop_notice_created_id_index_sql;
+EXECUTE stmt_add_shop_notice_created_id_index;
+DEALLOCATE PREPARE stmt_add_shop_notice_created_id_index;
+
+SET @shop_notice_has_status_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'shop_notice'
+      AND INDEX_NAME = 'idx_shop_notice_status_created_id'
+);
+SET @shop_notice_status_created_id_index_sql = IF(
+    @shop_notice_has_status_created_id_index = 0,
+    'ALTER TABLE shop_notice ADD KEY idx_shop_notice_status_created_id (status, created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_shop_notice_status_created_id_index FROM @shop_notice_status_created_id_index_sql;
+EXECUTE stmt_add_shop_notice_status_created_id_index;
+DEALLOCATE PREPARE stmt_add_shop_notice_status_created_id_index;
+
+SET @member_user_has_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_user'
+      AND INDEX_NAME = 'idx_member_user_created_id'
+);
+SET @member_user_created_id_index_sql = IF(
+    @member_user_has_created_id_index = 0,
+    'ALTER TABLE member_user ADD KEY idx_member_user_created_id (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_user_created_id_index FROM @member_user_created_id_index_sql;
+EXECUTE stmt_add_member_user_created_id_index;
+DEALLOCATE PREPARE stmt_add_member_user_created_id_index;
+
+SET @payment_qr_has_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'payment_qr_config'
+      AND INDEX_NAME = 'idx_payment_qr_created_id'
+);
+SET @payment_qr_created_id_index_sql = IF(
+    @payment_qr_has_created_id_index = 0,
+    'ALTER TABLE payment_qr_config ADD KEY idx_payment_qr_created_id (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_payment_qr_created_id_index FROM @payment_qr_created_id_index_sql;
+EXECUTE stmt_add_payment_qr_created_id_index;
+DEALLOCATE PREPARE stmt_add_payment_qr_created_id_index;
+
+SET @member_recharge_has_created_id_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'member_recharge_request'
+      AND INDEX_NAME = 'idx_member_recharge_created_id'
+);
+SET @member_recharge_created_id_index_sql = IF(
+    @member_recharge_has_created_id_index = 0,
+    'ALTER TABLE member_recharge_request ADD KEY idx_member_recharge_created_id (created_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_member_recharge_created_id_index FROM @member_recharge_created_id_index_sql;
+EXECUTE stmt_add_member_recharge_created_id_index;
+DEALLOCATE PREPARE stmt_add_member_recharge_created_id_index;

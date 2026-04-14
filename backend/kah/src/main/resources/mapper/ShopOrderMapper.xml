@@ -3,17 +3,18 @@
 <mapper namespace="org.example.kah.mapper.ShopOrderMapper">
 
     <sql id="orderColumns">
-        id, order_no, user_id, product_id, product_title_snapshot, quantity, unit_price, total_amount, buyer_name,
-        buyer_contact, lookup_hash, buyer_remark, status, closed_reason, closed_at, created_at, updated_at
+        id, order_no, user_id, product_id, product_title_snapshot, quantity, unit_price, total_amount, payment_method,
+        balance_amount, buyer_name, buyer_contact, lookup_hash, buyer_remark, status, closed_reason, closed_at,
+        refunded_at, created_at, updated_at
     </sql>
 
     <insert id="insert" parameterType="org.example.kah.entity.ShopOrder" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO shop_order (
-            order_no, user_id, product_id, product_title_snapshot, quantity, unit_price, total_amount, buyer_name,
-            buyer_contact, lookup_hash, buyer_remark, status
+            order_no, user_id, product_id, product_title_snapshot, quantity, unit_price, total_amount, payment_method,
+            balance_amount, buyer_name, buyer_contact, lookup_hash, buyer_remark, status
         ) VALUES (
-            #{orderNo}, #{userId}, #{productId}, #{productTitleSnapshot}, #{quantity}, #{unitPrice}, #{totalAmount}, #{buyerName},
-            #{buyerContact}, #{lookupHash}, #{buyerRemark}, #{status}
+            #{orderNo}, #{userId}, #{productId}, #{productTitleSnapshot}, #{quantity}, #{unitPrice}, #{totalAmount}, #{paymentMethod},
+            #{balanceAmount}, #{buyerName}, #{buyerContact}, #{lookupHash}, #{buyerRemark}, #{status}
         )
     </insert>
 
@@ -37,7 +38,7 @@
         WHERE lookup_hash = #{lookupHash}
     </select>
 
-    <select id="findPage" parameterType="map" resultType="org.example.kah.entity.ShopOrder">
+    <select id="findCursorPage" resultType="org.example.kah.entity.ShopOrder">
         SELECT <include refid="orderColumns" />
         FROM shop_order
         <where>
@@ -49,32 +50,21 @@
             </if>
             <if test="keyword != null and keyword != ''">
                 AND (
-                    order_no LIKE CONCAT('%', #{keyword}, '%')
-                    OR buyer_contact LIKE CONCAT('%', #{keyword}, '%')
+                    order_no = #{keyword}
+                    OR order_no LIKE CONCAT(#{keyword}, '%')
+                    OR buyer_contact = #{keyword}
+                    OR buyer_contact LIKE CONCAT(#{keyword}, '%')
                 )
             </if>
-        </where>
-        ORDER BY id DESC
-        LIMIT #{size} OFFSET #{offset}
-    </select>
-
-    <select id="countPage" parameterType="map" resultType="long">
-        SELECT COUNT(*)
-        FROM shop_order
-        <where>
-            <if test="status != null and status != ''">
-                AND status = #{status}
-            </if>
-            <if test="productId != null">
-                AND product_id = #{productId}
-            </if>
-            <if test="keyword != null and keyword != ''">
+            <if test="cursorCreatedAt != null and cursorId != null">
                 AND (
-                    order_no LIKE CONCAT('%', #{keyword}, '%')
-                    OR buyer_contact LIKE CONCAT('%', #{keyword}, '%')
+                    created_at &lt; #{cursorCreatedAt}
+                    OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
                 )
             </if>
         </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
     </select>
 
     <select id="findByContact" parameterType="map" resultType="org.example.kah.entity.ShopOrder">
@@ -93,14 +83,14 @@
                 AND 1 = 0
             </otherwise>
         </choose>
-        ORDER BY id DESC
+        ORDER BY created_at DESC, id DESC
     </select>
 
     <select id="findByUserId" resultType="org.example.kah.entity.ShopOrder">
         SELECT <include refid="orderColumns" />
         FROM shop_order
         WHERE user_id = #{userId}
-        ORDER BY id DESC
+        ORDER BY created_at DESC, id DESC
     </select>
 
     <select id="countByProductId" resultType="long">
@@ -114,6 +104,12 @@
         SET status = 'CLOSED',
             closed_reason = #{reason},
             closed_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="markRefunded">
+        UPDATE shop_order
+        SET refunded_at = NOW()
         WHERE id = #{id}
     </update>
 

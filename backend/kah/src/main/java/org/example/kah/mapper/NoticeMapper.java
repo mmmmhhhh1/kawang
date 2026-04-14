@@ -1,6 +1,7 @@
 package org.example.kah.mapper;
 
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Options;
@@ -9,18 +10,9 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.example.kah.entity.ShopNotice;
 
-/**
- * 公告表 Mapper。
- * 负责前台公告读取和后台公告管理。
- */
 @Mapper
 public interface NoticeMapper {
 
-    /**
-     * 查询前台可展示公告。
-     *
-     * @return 已发布公告列表
-     */
     @Select("""
             SELECT id, title, summary, content, status, sort_order, published_at, created_at, updated_at
             FROM shop_notice
@@ -29,11 +21,6 @@ public interface NoticeMapper {
             """)
     List<ShopNotice> findPublished();
 
-    /**
-     * 查询后台全部公告。
-     *
-     * @return 全量公告记录
-     */
     @Select("""
             SELECT id, title, summary, content, status, sort_order, published_at, created_at, updated_at
             FROM shop_notice
@@ -41,12 +28,23 @@ public interface NoticeMapper {
             """)
     List<ShopNotice> findAll();
 
-    /**
-     * 按主键查询公告。
-     *
-     * @param id 公告主键
-     * @return 公告实体
-     */
+    @Select({
+            "<script>",
+            "SELECT id, title, summary, content, status, sort_order, published_at, created_at, updated_at",
+            "FROM shop_notice",
+            "<where>",
+            "  <if test='status != null and status != \"\"'> AND status = #{status} </if>",
+            "  <if test='keyword != null and keyword != \"\"'> AND (title LIKE CONCAT(#{keyword}, '%') OR summary LIKE CONCAT(#{keyword}, '%')) </if>",
+            "  <if test='cursorCreatedAt != null and cursorId != null'>",
+            "    AND (created_at &lt; #{cursorCreatedAt} OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId}))",
+            "  </if>",
+            "</where>",
+            "ORDER BY created_at DESC, id DESC",
+            "LIMIT #{limit}",
+            "</script>"
+    })
+    List<ShopNotice> findAdminCursorPage(Map<String, Object> params);
+
     @Select("""
             SELECT id, title, summary, content, status, sort_order, published_at, created_at, updated_at
             FROM shop_notice
@@ -55,12 +53,6 @@ public interface NoticeMapper {
             """)
     ShopNotice findById(@Param("id") Long id);
 
-    /**
-     * 新增公告。
-     *
-     * @param notice 公告实体
-     * @return 影响行数
-     */
     @Insert("""
             INSERT INTO shop_notice (title, summary, content, status, sort_order, published_at)
             VALUES (#{title}, #{summary}, #{content}, #{status}, #{sortOrder}, #{publishedAt})
@@ -68,12 +60,6 @@ public interface NoticeMapper {
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(ShopNotice notice);
 
-    /**
-     * 更新公告内容。
-     *
-     * @param notice 公告实体
-     * @return 影响行数
-     */
     @Update("""
             UPDATE shop_notice
             SET title = #{title},
@@ -86,13 +72,6 @@ public interface NoticeMapper {
             """)
     int update(ShopNotice notice);
 
-    /**
-     * 更新公告状态。
-     *
-     * @param id 公告主键
-     * @param status 目标状态
-     * @return 影响行数
-     */
     @Update("""
             UPDATE shop_notice
             SET status = #{status}

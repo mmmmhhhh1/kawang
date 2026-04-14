@@ -1,5 +1,15 @@
 server:
   port: 8080
+  compression:
+    enabled: true
+    min-response-size: 1024
+  tomcat:
+    threads:
+      max: 400
+      min-spare: 32
+    accept-count: 2000
+    max-connections: 8192
+    connection-timeout: 5s
 
 spring:
   application:
@@ -8,10 +18,20 @@ spring:
     converters:
       preferred-json-mapper: jackson2
   datasource:
-    url: jdbc:mysql://localhost:3306/test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&cachePrepStmts=true&prepStmtCacheSize=256&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true&rewriteBatchedStatements=true&maintainTimeStats=false
     username: root
     password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: kawang-hikari
+      maximum-pool-size: 60
+      minimum-idle: 16
+      auto-commit: true
+      connection-timeout: 3000
+      validation-timeout: 1000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      keepalive-time: 300000
   sql:
     init:
       mode: always
@@ -21,6 +41,12 @@ spring:
       host: localhost
       port: 6379
       database: 2
+      lettuce:
+        pool:
+          max-active: 64
+          max-idle: 16
+          min-idle: 4
+          max-wait: 3s
   mail:
     host: smtp.qq.com
     port: 465
@@ -37,11 +63,14 @@ spring:
           connectiontimeout: 5000
           timeout: 5000
           writetimeout: 5000
-          
+
 mybatis:
   mapper-locations: classpath*:mapper/*.xml
   configuration:
     map-underscore-to-camel-case: true
+    default-fetch-size: 100
+    default-statement-timeout: 5
+    default-executor-type: REUSE
 
 shop:
   security:
@@ -51,9 +80,11 @@ shop:
     admin:
       username: admin
       password: Admin@123456
-      display-name: 骞冲彴绠＄悊鍛?
+      display-name: Super Admin
   crypto:
     aes-key: "shop-demo-aes-key-please-change-this"
+  storage:
+    base-path: "./storage"
   cors:
     allowed-origins:
       - http://localhost:5173

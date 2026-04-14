@@ -1,9 +1,12 @@
 package org.example.kah.service.impl;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
+import org.example.kah.common.CursorPageResponse;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.dto.admin.AdminMemberActivityView;
 import org.example.kah.dto.admin.AdminMemberDetailView;
@@ -20,11 +23,9 @@ import org.example.kah.service.AdminMemberService;
 import org.example.kah.service.MemberActivityCacheService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.example.kah.util.CryptoService;
+import org.example.kah.util.CursorCodecUtils;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link AdminMemberService} 默认实现。
- */
 @Service
 @RequiredArgsConstructor
 public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long> implements AdminMemberService {
@@ -41,11 +42,30 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
     }
 
     @Override
+    public CursorPageResponse<AdminMemberListView> page(int size, String cursor, String keyword, String status) {
+        int safeSize = normalizeSize(size, 50);
+        CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
+        Map<String, Object> params = new HashMap<>();
+        params.put("status", trim(status));
+        params.put("keyword", trim(keyword));
+        params.put("limit", safeSize + 1);
+        if (decodedCursor != null) {
+            params.put("cursorCreatedAt", decodedCursor.createdAt());
+            params.put("cursorId", decodedCursor.id());
+        }
+        List<MemberUser> rows = memberUserMapper.findAdminCursorPage(params);
+        boolean hasMore = rows.size() > safeSize;
+        List<MemberUser> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
+        String nextCursor = hasMore
+                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
+                : null;
+        return new CursorPageResponse<>(pageItems.stream().map(this::toListView).toList(), nextCursor, hasMore);
+    }
+
+    @Override
     public AdminMemberDetailView detail(Long id) {
         MemberUser memberUser = requireById(id);
-        List<AdminMemberOrderView> orders = shopOrderMapper.findByUserId(id).stream()
-                .map(this::toOrderView)
-                .toList();
+        List<AdminMemberOrderView> orders = shopOrderMapper.findByUserId(id).stream().map(this::toOrderView).toList();
         return new AdminMemberDetailView(
                 memberUser.getId(),
                 memberUser.getUsername(),
@@ -69,10 +89,9 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
 
     @Override
     public AdminMemberListView updateStatus(Long id, String status) {
-        MemberUser memberUser = requireById(id);
+        requireById(id);
         ensureStatus(status);
         memberUserMapper.updateStatus(id, status);
-        memberUser.setStatus(status);
         return toListView(memberUserMapper.findById(id));
     }
 

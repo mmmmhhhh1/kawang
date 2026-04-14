@@ -9,14 +9,9 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.example.kah.entity.ShopOrderAccount;
 
-/**
- * 订单资源快照 Mapper。
- * 负责维护订单与卡密快照之间的绑定关系。
- */
 @Mapper
 public interface ShopOrderAccountMapper {
 
-    /** 新增订单资源快照关系。 */
     @Insert("""
             INSERT INTO shop_order_account (order_id, account_id, masked_account_snapshot, card_key_ciphertext_snapshot)
             VALUES (#{orderId}, #{accountId}, #{maskedAccountSnapshot}, #{cardKeyCiphertextSnapshot})
@@ -24,13 +19,19 @@ public interface ShopOrderAccountMapper {
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(ShopOrderAccount orderAccount);
 
-    /**
-     * 查询某个订单对应的资源快照列表。
-     * 联表带出当前启用状态，以便前台和后台看到卡密是否被后续停用。
-     */
+    @Insert({
+            "<script>",
+            "INSERT INTO shop_order_account (order_id, account_id, masked_account_snapshot, card_key_ciphertext_snapshot) VALUES",
+            "<foreach collection='items' item='item' separator=','>",
+            "(#{item.orderId}, #{item.accountId}, #{item.maskedAccountSnapshot}, #{item.cardKeyCiphertextSnapshot})",
+            "</foreach>",
+            "</script>"
+    })
+    int batchInsert(@Param("items") List<ShopOrderAccount> items);
+
     @Select("""
             SELECT soa.id, soa.order_id, soa.account_id, soa.masked_account_snapshot, soa.card_key_ciphertext_snapshot,
-                   pa.enable_status, soa.created_at
+                   pa.enable_status, pa.used_status, soa.created_at
             FROM shop_order_account soa
             LEFT JOIN product_account pa ON pa.id = soa.account_id
             WHERE soa.order_id = #{orderId}
@@ -38,7 +39,6 @@ public interface ShopOrderAccountMapper {
             """)
     List<ShopOrderAccount> findByOrderId(@Param("orderId") Long orderId);
 
-    /** 删除某个订单的全部资源快照。 */
     @Delete("""
             DELETE FROM shop_order_account
             WHERE order_id = #{orderId}

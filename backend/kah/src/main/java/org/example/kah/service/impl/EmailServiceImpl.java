@@ -1,5 +1,6 @@
 package org.example.kah.service.impl;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
@@ -25,10 +26,6 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link EmailService} 默认实现。
- * 负责邮箱验证码发送、邮箱登录和邮箱注册。
- */
 @Service
 @RequiredArgsConstructor
 public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> implements EmailService {
@@ -50,9 +47,6 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         return "会员";
     }
 
-    /**
-     * 使用邮箱验证码登录。
-     */
     @Override
     public MemberAuthResponse login(MemberLoginMailRqs request) {
         verifyCode(request.email(), request.code());
@@ -69,9 +63,6 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         return toAuthResponse(memberUser);
     }
 
-    /**
-     * 发送邮箱验证码。
-     */
     @Override
     public ApiResponse<Void> sendEmail(CodeSend request) {
         SimpleMailMessage message = new SimpleMailMessage();
@@ -85,9 +76,6 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         return ApiResponse.success();
     }
 
-    /**
-     * 使用邮箱验证码注册，并直接返回登录态。
-     */
     @Override
     public MemberAuthResponse register(MemberRegisMailRsp request) {
         verifyCode(request.email(), request.code());
@@ -103,6 +91,7 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         memberUser.setMail(trim(request.email()));
         memberUser.setPasswordHash(passwordEncoder.encode(request.password()));
         memberUser.setStatus(MemberStatus.ACTIVE);
+        memberUser.setBalance(BigDecimal.ZERO);
         memberUser.setLastLoginAt(now);
         memberUser.setLastSeenAt(now);
         memberUserMapper.insert(memberUser);
@@ -124,6 +113,10 @@ public class EmailServiceImpl extends AbstractCrudService<MemberUser, Long> impl
         return new MemberAuthResponse(
                 jwtService.createMemberToken(memberUser),
                 "Bearer",
-                new MemberProfileView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail()));
+                new MemberProfileView(
+                        memberUser.getId(),
+                        memberUser.getUsername(),
+                        memberUser.getMail(),
+                        memberUser.getBalance() == null ? BigDecimal.ZERO : memberUser.getBalance()));
     }
 }

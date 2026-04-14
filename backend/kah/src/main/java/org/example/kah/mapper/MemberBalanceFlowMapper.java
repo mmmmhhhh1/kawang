@@ -1,0 +1,29 @@
+package org.example.kah.mapper;
+
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.example.kah.entity.MemberBalanceFlow;
+
+@Mapper
+public interface MemberBalanceFlowMapper {
+
+    @Insert("""
+            INSERT INTO member_balance_flow (
+                user_id, biz_type, biz_no, direction, amount, balance_before, balance_after, remark
+            ) VALUES (
+                #{userId}, #{bizType}, #{bizNo}, #{direction}, #{amount}, #{balanceBefore}, #{balanceAfter}, #{remark}
+            )
+            """)
+    int insert(MemberBalanceFlow flow);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM member_balance_flow
+            WHERE biz_type = #{bizType}
+              AND biz_no = #{bizNo}
+              AND direction = #{direction}
+            """)
+    long countByBiz(@Param("bizType") String bizType, @Param("bizNo") String bizNo, @Param("direction") String direction);
+}

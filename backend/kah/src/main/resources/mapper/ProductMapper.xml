@@ -19,6 +19,32 @@
         ORDER BY sort_order ASC, id DESC
     </select>
 
+    <select id="findAdminCursorPage" resultType="org.example.kah.entity.ShopProduct">
+        SELECT <include refid="productColumns" />
+        FROM shop_product
+        <where>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    sku LIKE CONCAT(#{keyword}, '%')
+                    OR title LIKE CONCAT(#{keyword}, '%')
+                    OR vendor LIKE CONCAT(#{keyword}, '%')
+                    OR plan_name LIKE CONCAT(#{keyword}, '%')
+                )
+            </if>
+            <if test="cursorCreatedAt != null and cursorId != null">
+                AND (
+                    created_at &lt; #{cursorCreatedAt}
+                    OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
+                )
+            </if>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
     <select id="findById" resultType="org.example.kah.entity.ShopProduct">
         SELECT <include refid="productColumns" />
         FROM shop_product

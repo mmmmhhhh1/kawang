@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
+import org.example.kah.common.CursorPageResponse;
 import org.example.kah.dto.admin.AdminMemberActivityView;
 import org.example.kah.dto.admin.AdminMemberDetailView;
 import org.example.kah.dto.admin.AdminMemberListView;
@@ -21,9 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 后台会员管理接口。
- */
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
@@ -32,31 +30,35 @@ public class AdminUserController {
     private final AdminMemberService adminMemberService;
     private final AdminPermissionService adminPermissionService;
 
-    /** 查询会员基础列表。 */
     @GetMapping
     public ApiResponse<List<AdminMemberListView>> list() {
         return ApiResponse.success(adminMemberService.list());
     }
 
-    /** 查询会员详情。 */
+    @GetMapping("/page")
+    public ApiResponse<CursorPageResponse<AdminMemberListView>> page(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String status) {
+        return ApiResponse.success(adminMemberService.page(size, cursor, keyword, status));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<AdminMemberDetailView> detail(@PathVariable Long id) {
         return ApiResponse.success(adminMemberService.detail(id));
     }
 
-    /** 批量查询会员活动信息。 */
     @GetMapping("/activity")
     public ApiResponse<List<AdminMemberActivityView>> listActivities(@RequestParam List<Long> ids) {
         return ApiResponse.success(adminMemberService.listActivities(ids));
     }
 
-    /** 查询单个会员活动信息。 */
     @GetMapping("/{id}/activity")
     public ApiResponse<AdminMemberActivityView> activity(@PathVariable Long id) {
         return ApiResponse.success(adminMemberService.activity(id));
     }
 
-    /** 更新会员状态。 */
     @PatchMapping("/{id}/status")
     public ApiResponse<AdminMemberListView> updateStatus(
             @PathVariable Long id,

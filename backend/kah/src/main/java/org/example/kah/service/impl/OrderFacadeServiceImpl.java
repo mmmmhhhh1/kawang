@@ -15,7 +15,9 @@ import org.example.kah.dto.publicapi.OrderCreatedResponse;
 import org.example.kah.dto.publicapi.OrderQueryView;
 import org.example.kah.dto.publicapi.QueryOrdersRequest;
 import org.example.kah.entity.EnableStatus;
+import org.example.kah.entity.MemberUser;
 import org.example.kah.entity.OrderStatus;
+import org.example.kah.entity.PaymentMethod;
 import org.example.kah.entity.ProductAccount;
 import org.example.kah.entity.ProductStatus;
 import org.example.kah.entity.ShopOrder;
@@ -26,6 +28,7 @@ import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.security.AuthenticatedUser;
+import org.example.kah.service.MemberBalanceService;
 import org.example.kah.service.OrderFacadeService;
 import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.ProductLockExecutorService;
@@ -33,16 +36,19 @@ import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.MaskingUtils;
 import org.example.kah.util.OrderNumberGenerator;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link OrderFacadeService} 默认实现。
- * 负责前台下单事务、游客查单以及会员订单查询。
- */
 @Service
 @RequiredArgsConstructor
 public class OrderFacadeServiceImpl extends AbstractServiceSupport implements OrderFacadeService {
+
+    private static final String LOGIN_REQUIRED = "\u8bf7\u5148\u767b\u5f55\u540e\u518d\u8d2d\u4e70";
+    private static final String LOOKUP_REQUIRED = "\u8bf7\u8f93\u5165\u8054\u7cfb\u65b9\u5f0f\u548c\u67e5\u5355\u5bc6\u7801\uff0c\u6216\u4f7f\u7528\u65e7\u8ba2\u5355\u53f7\u517c\u5bb9\u67e5\u8be2";
+    private static final String PRODUCT_NOT_FOUND = "\u5546\u54c1\u4e0d\u5b58\u5728\u6216\u5df2\u4e0b\u67b6";
+    private static final String INVALID_QUANTITY = "\u8d2d\u4e70\u6570\u91cf\u81f3\u5c11\u4e3a 1";
+    private static final String INSUFFICIENT_CARD_KEYS = "\u53ef\u7528\u5361\u5bc6\u4e0d\u8db3\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5";
+    private static final String BALANCE_ORDER_REMARK = "\u4f59\u989d\u8d2d\u4e70\u5361\u5bc6";
+    private static final String ORDER_SUCCESS_MESSAGE = "\u4e0b\u5355\u6210\u529f\uff0c\u5361\u5bc6\u5df2\u53d1\u653e";
 
     private final ProductMapper productMapper;
     private final ProductAccountMapper productAccountMapper;
@@ -52,18 +58,18 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     private final CryptoService cryptoService;
     private final ProductLockExecutorService productLockExecutorService;
     private final ProductCacheRefreshService productCacheRefreshService;
+    private final MemberBalanceService memberBalanceService;
 
-    /** 创建订单并分配卡密。 */
     @Override
     @TrackMemberSeen
     public OrderCreatedResponse create(CreateOrderRequest request, AuthenticatedUser currentUser) {
+        require(currentUser != null, ErrorCode.UNAUTHORIZED, LOGIN_REQUIRED);
         return productLockExecutorService.execute(
                 request.productId(),
                 () -> doCreate(request, currentUser),
                 () -> productCacheRefreshService.refreshStatsAfterWrite(request.productId()));
     }
 
-    /** 按联系方式和查单凭证查询订单。 */
     @Override
     public List<OrderQueryView> queryByContact(QueryOrdersRequest request) {
         String buyerContact = trim(request.buyerContact());
@@ -71,7 +77,7 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
         String orderNo = trim(request.orderNo());
         require(
                 (lookupSecret != null && !lookupSecret.isBlank()) || (orderNo != null && !orderNo.isBlank()),
-                "请输入联系方式和查单密码，或使用旧订单号兼容查询");
+                LOOKUP_REQUIRED);
 
         Map<String, Object> params = new HashMap<>();
         params.put("buyerContact", buyerContact);
@@ -83,7 +89,6 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
         return shopOrderMapper.findByContact(params).stream().map(this::toView).toList();
     }
 
-    /** 查询会员已绑定订单，并通过切面记录最近活跃时间。 */
     @Override
     @TrackMemberSeen
     public List<OrderQueryView> listByUser(Long userId) {
@@ -91,65 +96,72 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     }
 
     private OrderCreatedResponse doCreate(CreateOrderRequest request, AuthenticatedUser currentUser) {
-        ShopProduct product = productMapper.lockById(request.productId());
+        MemberUser memberUser = memberBalanceService.lockActiveMember(currentUser.userId());
+        ShopProduct product = productMapper.findById(request.productId());
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "商品不存在或已下架");
+            throw new BusinessException(ErrorCode.NOT_FOUND, PRODUCT_NOT_FOUND);
         }
 
         int quantity = request.quantity();
-        String buyerName = trim(request.buyerName());
-        String buyerContact = trim(request.buyerContact());
-        String lookupHash = buildLookupHash(buyerContact, request.lookupSecret());
-        if (product.getAvailableStock() < quantity) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "库存不足");
-        }
-        if (shopOrderMapper.countByLookupHash(lookupHash) > 0) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "查单密码已被占用，请重新输入");
+        if (quantity < 1) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, INVALID_QUANTITY);
         }
 
         List<ProductAccount> cardKeys = productAccountMapper.lockAvailableCardKeys(product.getId(), quantity);
         if (cardKeys.size() < quantity) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "可用卡密不足，请稍后重试");
+            throw new BusinessException(ErrorCode.BAD_REQUEST, INSUFFICIENT_CARD_KEYS);
         }
 
+        BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
+        String orderNo = orderNumberGenerator.next();
+        memberBalanceService.debitForOrder(memberUser, totalAmount, orderNo, BALANCE_ORDER_REMARK);
+
         ShopOrder order = new ShopOrder();
-        order.setOrderNo(orderNumberGenerator.next());
-        order.setUserId(currentUser == null ? null : currentUser.userId());
+        order.setOrderNo(orderNo);
+        order.setUserId(memberUser.getId());
         order.setProductId(product.getId());
         order.setProductTitleSnapshot(product.getTitle() + " / " + product.getPlanName());
         order.setQuantity(quantity);
         order.setUnitPrice(product.getPrice());
-        order.setTotalAmount(product.getPrice().multiply(BigDecimal.valueOf(quantity)));
-        order.setBuyerName(buyerName);
-        order.setBuyerContact(buyerContact);
-        order.setLookupHash(lookupHash);
+        order.setTotalAmount(totalAmount);
+        order.setPaymentMethod(PaymentMethod.BALANCE);
+        order.setBalanceAmount(totalAmount);
+        order.setBuyerName(memberUser.getUsername());
+        order.setBuyerContact(memberUser.getMail() == null || memberUser.getMail().isBlank() ? memberUser.getUsername() : memberUser.getMail());
+        order.setLookupHash(null);
         order.setBuyerRemark(trim(request.remark()));
         order.setStatus(OrderStatus.SUCCESS);
-        try {
-            shopOrderMapper.insert(order);
-        } catch (DuplicateKeyException exception) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "查单密码已被占用，请重新输入");
-        }
+        shopOrderMapper.insert(order);
 
         LocalDateTime now = LocalDateTime.now();
-        for (ProductAccount cardKey : cardKeys) {
-            productAccountMapper.assignToOrder(cardKey.getId(), order.getId(), now);
-            ShopOrderAccount orderAccount = new ShopOrderAccount();
-            orderAccount.setOrderId(order.getId());
-            orderAccount.setAccountId(cardKey.getId());
-            orderAccount.setMaskedAccountSnapshot(MaskingUtils.maskAccount(decryptCardKey(cardKey)));
-            orderAccount.setCardKeyCiphertextSnapshot(cardKey.getCardKeyCiphertext());
-            shopOrderAccountMapper.insert(orderAccount);
+        List<Long> cardKeyIds = cardKeys.stream().map(ProductAccount::getId).toList();
+        productAccountMapper.assignBatchToOrder(cardKeyIds, order.getId(), now);
+
+        List<ShopOrderAccount> snapshots = cardKeys.stream()
+                .map(cardKey -> toSnapshot(order.getId(), cardKey))
+                .toList();
+        if (!snapshots.isEmpty()) {
+            shopOrderAccountMapper.batchInsert(snapshots);
         }
 
-        productMapper.syncStatsByProductId(product.getId());
+        productMapper.adjustStats(product.getId(), -quantity, quantity);
         return new OrderCreatedResponse(
                 order.getOrderNo(),
                 order.getStatus(),
                 quantity,
                 order.getTotalAmount(),
-                "下单成功，订单已创建",
-                toCardKeyViews(cardKeys));
+                ORDER_SUCCESS_MESSAGE,
+                toCardKeyViews(cardKeys),
+                memberUser.getBalance());
+    }
+
+    private ShopOrderAccount toSnapshot(Long orderId, ProductAccount cardKey) {
+        ShopOrderAccount snapshot = new ShopOrderAccount();
+        snapshot.setOrderId(orderId);
+        snapshot.setAccountId(cardKey.getId());
+        snapshot.setMaskedAccountSnapshot(MaskingUtils.maskAccount(decryptCardKey(cardKey)));
+        snapshot.setCardKeyCiphertextSnapshot(cardKey.getCardKeyCiphertext());
+        return snapshot;
     }
 
     private OrderQueryView toView(ShopOrder order) {
@@ -169,7 +181,9 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 .filter(item -> item.getCardKeyCiphertextSnapshot() != null && !item.getCardKeyCiphertextSnapshot().isBlank())
                 .map(item -> new CardKeyView(
                         cryptoService.decrypt(item.getCardKeyCiphertextSnapshot()),
-                        item.getEnableStatus() == null || item.getEnableStatus().isBlank() ? EnableStatus.DISABLED : item.getEnableStatus()))
+                        item.getEnableStatus() == null || item.getEnableStatus().isBlank()
+                                ? EnableStatus.DISABLED
+                                : item.getEnableStatus()))
                 .toList();
     }
 

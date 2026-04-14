@@ -3,7 +3,7 @@
 <mapper namespace="org.example.kah.mapper.MemberUserMapper">
 
     <sql id="memberColumns">
-        id, username, mail, password_hash, status, last_login_at, last_seen_at, created_at, updated_at
+        id, username, mail, password_hash, status, balance, last_login_at, last_seen_at, created_at, updated_at
     </sql>
 
     <select id="findById" resultType="org.example.kah.entity.MemberUser">
@@ -11,6 +11,13 @@
         FROM member_user
         WHERE id = #{id}
         LIMIT 1
+    </select>
+
+    <select id="lockById" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        WHERE id = #{id}
+        FOR UPDATE
     </select>
 
     <select id="findByIds" resultType="org.example.kah.entity.MemberUser">
@@ -40,14 +47,38 @@
     <select id="findAll" resultType="org.example.kah.entity.MemberUser">
         SELECT <include refid="memberColumns" />
         FROM member_user
-        ORDER BY id DESC
+        ORDER BY created_at DESC, id DESC
+    </select>
+
+    <select id="findAdminCursorPage" resultType="org.example.kah.entity.MemberUser">
+        SELECT <include refid="memberColumns" />
+        FROM member_user
+        <where>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    username LIKE CONCAT(#{keyword}, '%')
+                    OR mail LIKE CONCAT(#{keyword}, '%')
+                )
+            </if>
+            <if test="cursorCreatedAt != null and cursorId != null">
+                AND (
+                    created_at &lt; #{cursorCreatedAt}
+                    OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
+                )
+            </if>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
     </select>
 
     <insert id="insert" parameterType="org.example.kah.entity.MemberUser" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO member_user (
-            username, mail, password_hash, status, last_login_at, last_seen_at
+            username, mail, password_hash, status, balance, last_login_at, last_seen_at
         ) VALUES (
-            #{username}, #{mail}, #{passwordHash}, #{status}, #{lastLoginAt}, #{lastSeenAt}
+            #{username}, #{mail}, #{passwordHash}, #{status}, #{balance}, #{lastLoginAt}, #{lastSeenAt}
         )
     </insert>
 
@@ -80,6 +111,12 @@
                 WHEN #{lastSeenAt} IS NULL THEN last_seen_at
                 ELSE #{lastSeenAt}
             END
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateBalance">
+        UPDATE member_user
+        SET balance = #{balance}
         WHERE id = #{id}
     </update>
 </mapper>

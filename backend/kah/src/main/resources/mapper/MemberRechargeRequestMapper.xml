@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.MemberRechargeRequestMapper">
+
+    <sql id="columns">
+        rr.id, rr.request_no, rr.user_id, rr.amount, rr.status, rr.screenshot_path, rr.payer_remark,
+        rr.reviewed_by, rr.reviewed_at, rr.reject_reason, rr.created_at, rr.updated_at,
+        u.username, u.mail AS email, a.display_name AS reviewed_by_name
+    </sql>
+
+    <sql id="baseColumns">
+        id, request_no, user_id, amount, status, screenshot_path, payer_remark,
+        reviewed_by, reviewed_at, reject_reason, created_at, updated_at
+    </sql>
+
+    <insert id="insert" parameterType="org.example.kah.entity.MemberRechargeRequest" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO member_recharge_request (
+            request_no, user_id, amount, status, screenshot_path, payer_remark
+        ) VALUES (
+            #{requestNo}, #{userId}, #{amount}, #{status}, #{screenshotPath}, #{payerRemark}
+        )
+    </insert>
+
+    <select id="findById" resultType="org.example.kah.entity.MemberRechargeRequest">
+        SELECT <include refid="columns" />
+        FROM member_recharge_request rr
+        INNER JOIN member_user u ON u.id = rr.user_id
+        LEFT JOIN admin_user a ON a.id = rr.reviewed_by
+        WHERE rr.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="lockById" resultType="org.example.kah.entity.MemberRechargeRequest">
+        SELECT <include refid="baseColumns" />
+        FROM member_recharge_request
+        WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <select id="findMemberCursorPage" resultType="org.example.kah.entity.MemberRechargeRequest">
+        SELECT <include refid="columns" />
+        FROM member_recharge_request rr
+        INNER JOIN member_user u ON u.id = rr.user_id
+        LEFT JOIN admin_user a ON a.id = rr.reviewed_by
+        WHERE rr.user_id = #{userId}
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (
+                rr.created_at &lt; #{cursorCreatedAt}
+                OR (rr.created_at = #{cursorCreatedAt} AND rr.id &lt; #{cursorId})
+            )
+        </if>
+        ORDER BY rr.created_at DESC, rr.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findAdminCursorPage" resultType="org.example.kah.entity.MemberRechargeRequest">
+        SELECT <include refid="columns" />
+        FROM member_recharge_request rr
+        INNER JOIN member_user u ON u.id = rr.user_id
+        LEFT JOIN admin_user a ON a.id = rr.reviewed_by
+        WHERE 1 = 1
+        <if test="status != null and status != ''">
+            AND rr.status = #{status}
+        </if>
+        <if test="userKeyword != null and userKeyword != ''">
+            AND (
+                u.username LIKE CONCAT(#{userKeyword}, '%')
+                OR u.mail LIKE CONCAT(#{userKeyword}, '%')
+            )
+        </if>
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (
+                rr.created_at &lt; #{cursorCreatedAt}
+                OR (rr.created_at = #{cursorCreatedAt} AND rr.id &lt; #{cursorId})
+            )
+        </if>
+        ORDER BY rr.created_at DESC, rr.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="approve">
+        UPDATE member_recharge_request
+        SET status = 'APPROVED',
+            reviewed_by = #{reviewedBy},
+            reviewed_at = NOW(),
+            reject_reason = NULL
+        WHERE id = #{id}
+    </update>
+
+    <update id="reject">
+        UPDATE member_recharge_request
+        SET status = 'REJECTED',
+            reviewed_by = #{reviewedBy},
+            reviewed_at = NOW(),
+            reject_reason = #{reason}
+        WHERE id = #{id}
+    </update>
+</mapper>

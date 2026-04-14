@@ -1,28 +1,41 @@
 package org.example.kah.controller;
 
-import ch.qos.logback.core.testUtil.RandomUtil;
 import jakarta.validation.Valid;
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-
 import lombok.RequiredArgsConstructor;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.example.kah.common.ApiResponse;
-import org.example.kah.common.BusinessException;
-import org.example.kah.dto.publicapi.*;
+import org.example.kah.common.CursorPageResponse;
+import org.example.kah.dto.publicapi.CodeSend;
+import org.example.kah.dto.publicapi.MemberAuthResponse;
+import org.example.kah.dto.publicapi.MemberLoginMailRqs;
+import org.example.kah.dto.publicapi.MemberLoginRequest;
+import org.example.kah.dto.publicapi.MemberProfileView;
+import org.example.kah.dto.publicapi.MemberRechargeItemView;
+import org.example.kah.dto.publicapi.MemberRegisMailRsp;
+import org.example.kah.dto.publicapi.MemberRegisterRequest;
+import org.example.kah.dto.publicapi.OrderQueryView;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.EmailService;
+import org.example.kah.service.MemberRechargeService;
 import org.example.kah.service.MemberUserService;
 import org.example.kah.service.OrderFacadeService;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 前台会员注册、登录和“我的订单”接口。
+ * 前台会员鉴权与会员中心接口。
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -31,13 +44,11 @@ public class PublicAuthController {
 
     private final MemberUserService memberUserService;
     private final OrderFacadeService orderFacadeService;
-    private final StringRedisTemplate stringRedisTemplate;
     private final EmailService emailService;
+    private final MemberRechargeService memberRechargeService;
+
     /**
-     * 前台会员注册接口。
-     *
-     * @param request 注册请求
-     * @return 注册后的登录态
+     * 普通会员注册。
      */
     @PostMapping("/register")
     public ApiResponse<MemberAuthResponse> register(@Valid @RequestBody MemberRegisterRequest request) {
@@ -45,10 +56,7 @@ public class PublicAuthController {
     }
 
     /**
-     * 前台会员登录接口。
-     *
-     * @param request 登录请求
-     * @return 登录后的认证结果
+     * 普通会员登录。
      */
     @PostMapping("/login")
     public ApiResponse<MemberAuthResponse> login(@Valid @RequestBody MemberLoginRequest request) {
@@ -56,10 +64,7 @@ public class PublicAuthController {
     }
 
     /**
-     * 当前登录会员资料接口。
-     *
-     * @param authentication Spring Security 当前认证对象
-     * @return 当前会员资料
+     * 获取当前登录会员资料。
      */
     @GetMapping("/me")
     public ApiResponse<MemberProfileView> me(Authentication authentication) {
@@ -67,40 +72,71 @@ public class PublicAuthController {
     }
 
     /**
-     * 当前登录会员订单列表接口。
-     *
-     * @param authentication Spring Security 当前认证对象
-     * @return 当前会员已绑定订单列表
+     * 获取当前登录会员订单。
      */
     @GetMapping("/orders")
     public ApiResponse<List<OrderQueryView>> myOrders(Authentication authentication) {
         AuthenticatedUser currentUser = (AuthenticatedUser) authentication.getPrincipal();
         return ApiResponse.success(orderFacadeService.listByUser(currentUser.userId()));
     }
+
     /**
-     * 发送验证码
-     * @param cs 封装前端传过来的邮件和使用场景
-     * @retuen 成功
-     * */
+     * 发送邮箱验证码。
+     */
     @PostMapping("/mail/send-code")
-    public ApiResponse sendMail(@RequestBody CodeSend cs) {
-      return emailService.sendEmail(cs);
+    public ApiResponse<Void> sendMail(@RequestBody CodeSend request) {
+        return emailService.sendEmail(request);
     }
 
     /**
-     * 发送验证码
-     * @param rqs 封装前端传过来的邮件和验证码
-     * @retuen 成功
-     * */
+     * 邮箱验证码登录。
+     */
     @PostMapping("/mail/login")
-    public ApiResponse<MemberAuthResponse> emailLogin(@RequestBody MemberLoginMailRqs rqs) {
-
-        return ApiResponse.success(emailService.login(rqs));
+    public ApiResponse<MemberAuthResponse> emailLogin(@RequestBody MemberLoginMailRqs request) {
+        return ApiResponse.success(emailService.login(request));
     }
 
+    /**
+     * 邮箱验证码注册。
+     */
     @PostMapping("/mail/register")
-    public ApiResponse<MemberAuthResponse> emailRegister(@RequestBody MemberRegisMailRsp rqs) {
+    public ApiResponse<MemberAuthResponse> emailRegister(@RequestBody MemberRegisMailRsp request) {
+        return ApiResponse.success(emailService.register(request));
+    }
 
-        return ApiResponse.success(emailService.register(rqs));
+    /**
+     * 查询当前会员充值记录。
+     */
+    @GetMapping("/recharges")
+    public ApiResponse<CursorPageResponse<MemberRechargeItemView>> myRecharges(
+            Authentication authentication,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String cursor) {
+        AuthenticatedUser currentUser = (AuthenticatedUser) authentication.getPrincipal();
+        return ApiResponse.success(memberRechargeService.listMine(currentUser, size, cursor));
+    }
+
+    /**
+     * 提交充值申请。
+     */
+    @PostMapping(value = "/recharges", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<MemberRechargeItemView> createRecharge(
+            Authentication authentication,
+            @RequestParam BigDecimal amount,
+            @RequestParam MultipartFile screenshot,
+            @RequestParam(required = false) String payerRemark) {
+        AuthenticatedUser currentUser = (AuthenticatedUser) authentication.getPrincipal();
+        return ApiResponse.success(memberRechargeService.create(currentUser, amount, screenshot, payerRemark));
+    }
+
+    /**
+     * 查看当前会员自己的充值截图。
+     */
+    @GetMapping("/recharges/{id}/screenshot")
+    public ResponseEntity<Resource> myRechargeScreenshot(Authentication authentication, @PathVariable Long id) {
+        AuthenticatedUser currentUser = (AuthenticatedUser) authentication.getPrincipal();
+        Resource resource = memberRechargeService.loadMineScreenshot(currentUser, id);
+        MediaType mediaType = MediaTypeFactory.getMediaType(resource).orElse(MediaType.APPLICATION_OCTET_STREAM);
+        return ResponseEntity.ok().contentType(mediaType).body(resource);
     }
 }

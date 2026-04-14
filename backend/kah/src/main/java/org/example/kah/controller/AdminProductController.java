@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
+import org.example.kah.common.CursorPageResponse;
 import org.example.kah.dto.admin.AdminProductSaveRequest;
 import org.example.kah.dto.admin.AdminProductStatusRequest;
 import org.example.kah.dto.admin.AdminProductView;
@@ -20,12 +21,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 后台商品管理接口。
- * 仅管理员可访问，用于维护商品主表信息、上下架状态和删除商品。
- */
 @RestController
 @RequestMapping("/api/admin/products")
 @RequiredArgsConstructor
@@ -34,31 +32,35 @@ public class AdminProductController {
     private final AdminProductService adminProductService;
     private final AdminPermissionService adminPermissionService;
 
-    /** 查询后台商品列表。 */
     @GetMapping
     public ApiResponse<List<AdminProductView>> list() {
         return ApiResponse.success(adminProductService.list());
     }
 
-    /** 创建商品。 */
+    @GetMapping("/page")
+    public ApiResponse<CursorPageResponse<AdminProductView>> page(
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String cursor,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String status) {
+        return ApiResponse.success(adminProductService.page(size, cursor, keyword, status));
+    }
+
     @PostMapping
     public ApiResponse<AdminProductView> create(@Valid @RequestBody AdminProductSaveRequest request) {
         return ApiResponse.success(adminProductService.create(request));
     }
 
-    /** 更新商品。 */
     @PutMapping("/{id}")
     public ApiResponse<AdminProductView> update(@PathVariable Long id, @Valid @RequestBody AdminProductSaveRequest request) {
         return ApiResponse.success(adminProductService.update(id, request));
     }
 
-    /** 切换商品状态。 */
     @PatchMapping("/{id}/status")
     public ApiResponse<AdminProductView> updateStatus(@PathVariable Long id, @Valid @RequestBody AdminProductStatusRequest request) {
         return ApiResponse.success(adminProductService.updateStatus(id, request.status().trim()));
     }
 
-    /** 删除商品。 */
     @DeleteMapping("/{id}")
     public ApiResponse<Void> delete(@PathVariable Long id, Authentication authentication) {
         adminPermissionService.requirePermission((AuthenticatedUser) authentication.getPrincipal(), AdminPermissionCode.DELETE_PRODUCT);
