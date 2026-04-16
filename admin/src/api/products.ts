@@ -1,4 +1,4 @@
-import { adminHttp, type ApiResponse } from './http'
+import { adminHttp, type ApiResponse, type CursorPageResponse } from './http'
 
 export type ProductRecord = {
   id: number
@@ -26,8 +26,27 @@ export type ProductPayload = {
   sortOrder: number
 }
 
+export type ProductCursorQuery = {
+  size: number
+  cursor?: string | null
+  keyword?: string
+  status?: 'ACTIVE' | 'INACTIVE'
+}
+
 export async function getProducts() {
   const response = await adminHttp.get<ApiResponse<ProductRecord[]>>('/products')
+  return response.data.data
+}
+
+export async function getProductPage(params: ProductCursorQuery) {
+  const response = await adminHttp.get<ApiResponse<CursorPageResponse<ProductRecord>>>('/products/page', {
+    params: {
+      size: params.size,
+      cursor: params.cursor || undefined,
+      keyword: params.keyword || undefined,
+      status: params.status || undefined,
+    },
+  })
   return response.data.data
 }
 

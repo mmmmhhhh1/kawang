@@ -1,4 +1,6 @@
-import { adminHttp, type ApiResponse } from './http'
+import { adminHttp, type ApiResponse, type CursorPageResponse } from './http'
+
+export type AccountUsedStatus = 'USED' | 'UNUSED'
 
 export type AccountRecord = {
   id: number
@@ -7,9 +9,16 @@ export type AccountRecord = {
   cardKey: string
   saleStatus: 'UNSOLD' | 'SOLD'
   enableStatus: 'ENABLED' | 'DISABLED'
+  usedStatus: AccountUsedStatus
   assignedOrderId: number | null
+  assignedOrderNo?: string | null
   assignedAt: string | null
   createdAt: string
+}
+
+export type AccountDetail = AccountRecord & {
+  note: string | null
+  updatedAt?: string | null
 }
 
 export type BatchAccountPayload = {
@@ -20,14 +29,44 @@ export type BatchAccountPayload = {
   }>
 }
 
+export type AccountCursorQuery = {
+  size: number
+  cursor?: string | null
+  productId?: number
+  saleStatus?: string
+  enableStatus?: string
+  usedStatus?: AccountUsedStatus | ''
+  keyword?: string
+}
+
 export async function getAccounts(productId?: number, saleStatus?: string, enableStatus?: string) {
-  const response = await adminHttp.get<ApiResponse<AccountRecord[]>>('/accounts', {
+  const response = await adminHttp.get<ApiResponse<AccountRecord[]>>('/accounts/all', {
     params: {
       productId,
       saleStatus: saleStatus || undefined,
       enableStatus: enableStatus || undefined,
     },
   })
+  return response.data.data
+}
+
+export async function getAccountPage(params: AccountCursorQuery) {
+  const response = await adminHttp.get<ApiResponse<CursorPageResponse<AccountRecord>>>('/accounts', {
+    params: {
+      size: params.size,
+      cursor: params.cursor || undefined,
+      productId: params.productId,
+      saleStatus: params.saleStatus || undefined,
+      enableStatus: params.enableStatus || undefined,
+      usedStatus: params.usedStatus || undefined,
+      keyword: params.keyword || undefined,
+    },
+  })
+  return response.data.data
+}
+
+export async function getAccountDetail(id: number) {
+  const response = await adminHttp.get<ApiResponse<AccountDetail>>(`/accounts/${id}`)
   return response.data.data
 }
 
@@ -38,6 +77,11 @@ export async function createAccounts(payload: BatchAccountPayload) {
 
 export async function updateAccountStatus(id: number, enableStatus: 'ENABLED' | 'DISABLED') {
   const response = await adminHttp.patch<ApiResponse<AccountRecord>>(`/accounts/${id}/status`, { enableStatus })
+  return response.data.data
+}
+
+export async function updateAccountUsedStatus(id: number, usedStatus: AccountUsedStatus) {
+  const response = await adminHttp.patch<ApiResponse<AccountRecord>>(`/accounts/${id}/used-status`, { usedStatus })
   return response.data.data
 }
 

@@ -26,6 +26,12 @@ public interface ProductAccountMapper {
 
     List<ProductAccount> lockByAssignedOrderId(@Param("orderId") Long orderId);
 
+    List<ProductAccount> findReservableByProductId(@Param("productId") Long productId);
+
+    List<ProductAccount> findByAllocationHandles(@Param("productId") Long productId, @Param("handles") List<String> handles);
+
+    List<ProductAccount> findMissingAllocationHandles(@Param("limit") int limit);
+
     int insert(ProductAccount account);
 
     long countByResourceType(@Param("resourceType") String resourceType);
@@ -34,9 +40,17 @@ public interface ProductAccountMapper {
 
     int normalizeLegacyPool();
 
+    int updateAllocationHandle(@Param("id") Long id, @Param("allocationHandle") String allocationHandle);
+
     int assignToOrder(@Param("id") Long id, @Param("orderId") Long orderId, @Param("assignedAt") LocalDateTime assignedAt);
 
     int assignBatchToOrder(@Param("ids") List<Long> ids, @Param("orderId") Long orderId, @Param("assignedAt") LocalDateTime assignedAt);
+
+    int assignBatchToOrderByHandles(
+            @Param("productId") Long productId,
+            @Param("handles") List<String> handles,
+            @Param("orderId") Long orderId,
+            @Param("assignedAt") LocalDateTime assignedAt);
 
     int release(@Param("id") Long id);
 

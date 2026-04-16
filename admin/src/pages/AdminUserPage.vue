@@ -1,18 +1,11 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  adminProfileState,
-  hasAdminPermission,
-  type AdminPermission,
-} from '@/api/auth'
-import {
-  createAdmin,
-  deleteAdmin,
-  getAdmins,
-  updateAdminPermissions,
-  type AdminUserItem,
-} from '@/api/admins'
+import { adminProfileState, hasAdminPermission, type AdminPermission } from '@/api/auth'
+import { createAdmin, deleteAdmin, getAdminPage, updateAdminPermissions, type AdminUserItem } from '@/api/admins'
+import { useCursorPager } from '@/utils/cursorPager'
+
+const PAGE_SIZE = 10
 
 const loading = ref(false)
 const saving = ref(false)
@@ -22,6 +15,11 @@ const permissionVisible = ref(false)
 const admins = ref<AdminUserItem[]>([])
 const editingAdmin = ref<AdminUserItem | null>(null)
 const profile = adminProfileState
+const pager = useCursorPager()
+
+const filters = reactive({
+  keyword: '',
+})
 
 const canManageAdmins = computed(() => hasAdminPermission('CREATE_ADMIN', profile.value))
 
@@ -52,17 +50,49 @@ function resetCreateForm() {
   createForm.permissions = []
 }
 
-async function loadAdmins() {
+async function loadAdmins(page = 1) {
   if (!canManageAdmins.value) {
+    admins.value = []
+    pager.reset()
     return
   }
 
   loading.value = true
   try {
-    admins.value = await getAdmins()
+    const result = await getAdminPage({
+      size: PAGE_SIZE,
+      cursor: pager.getCursor(page),
+      keyword: filters.keyword || undefined,
+    })
+    admins.value = result.items
+    pager.commit(page, result.nextCursor, result.hasMore)
   } finally {
     loading.value = false
   }
+}
+
+function resetAndLoad() {
+  pager.reset()
+  void loadAdmins(1)
+}
+
+function goPrevPage() {
+  if (!pager.canPrev.value) {
+    return
+  }
+  void loadAdmins(pager.currentPage.value - 1)
+}
+
+function goNextPage() {
+  if (!pager.canNext.value) {
+    return
+  }
+  void loadAdmins(pager.currentPage.value + 1)
+}
+
+function resetFilters() {
+  filters.keyword = ''
+  resetAndLoad()
 }
 
 function openCreate() {
@@ -81,7 +111,7 @@ async function submitCreate() {
     })
     ElMessage.success('管理员创建成功')
     createVisible.value = false
-    await loadAdmins()
+    resetAndLoad()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '管理员创建失败')
   } finally {
@@ -105,7 +135,7 @@ async function submitPermissions() {
     await updateAdminPermissions(editingAdmin.value.id, permissionForm.value)
     ElMessage.success('权限更新成功')
     permissionVisible.value = false
-    await loadAdmins()
+    resetAndLoad()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '权限更新失败')
   } finally {
@@ -126,7 +156,7 @@ async function removeAdmin(row: AdminUserItem) {
     })
     await deleteAdmin(row.id)
     ElMessage.success('管理员已删除')
-    await loadAdmins()
+    resetAndLoad()
   } catch (error: any) {
     if (error === 'cancel' || error === 'close') {
       return
@@ -138,9 +168,12 @@ async function removeAdmin(row: AdminUserItem) {
 watch(
   canManageAdmins,
   (allowed) => {
-    if (allowed && !admins.value.length) {
-      loadAdmins()
+    if (allowed) {
+      resetAndLoad()
+      return
     }
+    admins.value = []
+    pager.reset()
   },
   { immediate: true },
 )
@@ -152,10 +185,16 @@ watch(
       <template v-if="canManageAdmins">
         <div class="page-header">
           <div>
-            <p>创建新的管理员账号，并管理普通管理员的权限。最高权限管理员不可删除，也不可修改权限。</p>
+            <p>管理员列表现在按固定每页 10 条展示，翻页底层仍然是游标分页，深分页不会走高成本 offset。超级管理员不可删除，也不可修改权限。</p>
             <h1>管理员管理</h1>
           </div>
           <el-button type="primary" @click="openCreate">新建管理员</el-button>
+        </div>
+
+        <div class="toolbar">
+          <el-input v-model="filters.keyword" clearable placeholder="搜索用户名或显示名" @keyup.enter="resetAndLoad" />
+          <el-button type="primary" @click="resetAndLoad">查询</el-button>
+          <el-button @click="resetFilters">重置</el-button>
         </div>
 
         <el-table :data="admins" v-loading="loading" border>
@@ -164,19 +203,14 @@ watch(
           <el-table-column label="权限级别" width="130">
             <template #default="{ row }">
               <el-tag :type="row.isSuperAdmin ? 'danger' : 'info'">
-                {{ row.isSuperAdmin ? '最高权限' : '普通管理员' }}
+                {{ row.isSuperAdmin ? '超级管理员' : '普通管理员' }}
               </el-tag>
             </template>
           </el-table-column>
           <el-table-column label="权限标签" min-width="260">
             <template #default="{ row }">
               <div class="permission-tags">
-                <el-tag
-                  v-for="permission in row.permissions"
-                  :key="permission"
-                  type="primary"
-                  effect="plain"
-                >
+                <el-tag v-for="permission in row.permissions" :key="permission" type="primary" effect="plain">
                   {{ permissionLabel(permission) }}
                 </el-tag>
                 <span v-if="!row.permissions?.length" class="muted">无额外权限</span>
@@ -195,6 +229,14 @@ watch(
             </template>
           </el-table-column>
         </el-table>
+
+        <div class="pager-bar">
+          <span class="pager-bar__summary">第 {{ pager.currentPage }} 页，每页 {{ PAGE_SIZE }} 条</span>
+          <div class="pager-bar__actions">
+            <el-button :disabled="!pager.canPrev || loading" @click="goPrevPage">上一页</el-button>
+            <el-button type="primary" :disabled="!pager.canNext || loading" @click="goNextPage">下一页</el-button>
+          </div>
+        </div>
       </template>
 
       <el-result
@@ -252,5 +294,38 @@ watch(
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.pager-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.pager-bar__summary {
+  color: #5f7285;
+  font-size: 13px;
+}
+
+.pager-bar__actions {
+  display: flex;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .pager-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pager-bar__actions {
+    width: 100%;
+  }
+
+  .pager-bar__actions :deep(.el-button) {
+    flex: 1;
+  }
 }
 </style>

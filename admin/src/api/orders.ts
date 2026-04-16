@@ -1,4 +1,5 @@
-import { adminHttp, type ApiResponse } from './http'
+import { adminHttp, type ApiResponse, type CursorPageResponse } from './http'
+import type { AccountUsedStatus } from './accounts'
 
 export type OrderRecord = {
   id: number
@@ -16,25 +17,35 @@ export type OrderRecord = {
   createdAt: string
 }
 
+export type OrderCardKeyRecord = {
+  accountId?: number | null
+  cardKey: string
+  enableStatus?: 'ENABLED' | 'DISABLED' | null
+  usedStatus?: AccountUsedStatus | null
+}
+
 export type OrderDetail = OrderRecord & {
-  cardKeys: string[]
+  cardKeys: OrderCardKeyRecord[]
 }
 
-export type PageResult<T> = {
-  items: T[]
-  total: number
-  page: number
+export type OrderCursorQuery = {
   size: number
-}
-
-export async function getOrders(params: {
-  page: number
-  size: number
+  cursor?: string | null
   status?: string
   productId?: number
   keyword?: string
-}) {
-  const response = await adminHttp.get<ApiResponse<PageResult<OrderRecord>>>('/orders', { params })
+}
+
+export async function getOrders(params: OrderCursorQuery) {
+  const response = await adminHttp.get<ApiResponse<CursorPageResponse<OrderRecord>>>('/orders', {
+    params: {
+      size: params.size,
+      cursor: params.cursor || undefined,
+      status: params.status || undefined,
+      productId: params.productId,
+      keyword: params.keyword || undefined,
+    },
+  })
   return response.data.data
 }
 

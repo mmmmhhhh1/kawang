@@ -9,6 +9,8 @@ import OrderPage from '@/pages/OrderPage.vue'
 import NoticePage from '@/pages/NoticePage.vue'
 import UserPage from '@/pages/UserPage.vue'
 import AdminUserPage from '@/pages/AdminUserPage.vue'
+import RechargePage from '@/pages/RechargePage.vue'
+import PaymentQrPage from '@/pages/PaymentQrPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -29,11 +31,18 @@ const router = createRouter({
         { path: 'accounts', name: 'accounts', component: AccountPage, meta: { requiresAuth: true } },
         { path: 'orders', name: 'orders', component: OrderPage, meta: { requiresAuth: true } },
         { path: 'users', name: 'users', component: UserPage, meta: { requiresAuth: true } },
+        { path: 'recharges', name: 'recharges', component: RechargePage, meta: { requiresAuth: true } },
         {
           path: 'admins',
           name: 'admins',
           component: AdminUserPage,
           meta: { requiresAuth: true, requiredPermission: 'CREATE_ADMIN' },
+        },
+        {
+          path: 'payment-qr',
+          name: 'payment-qr',
+          component: PaymentQrPage,
+          meta: { requiresAuth: true, superAdminOnly: true },
         },
         { path: 'notices', name: 'notices', component: NoticePage, meta: { requiresAuth: true } },
       ],
@@ -50,11 +59,18 @@ router.beforeEach((to) => {
     return { name: 'products' }
   }
 
-  const requiredPermission = to.meta.requiredPermission as AdminPermission | undefined
   const profile = getStoredProfile()
+  const requiredPermission = to.meta.requiredPermission as AdminPermission | undefined
+  const superAdminOnly = Boolean(to.meta.superAdminOnly)
+
+  if (superAdminOnly && profile && !profile.isSuperAdmin) {
+    return { name: 'products' }
+  }
+
   if (requiredPermission && profile && !hasAdminPermission(requiredPermission, profile)) {
     return { name: 'products' }
   }
+
   return true
 })
 

@@ -1,4 +1,4 @@
-﻿import { http, type ApiResponse } from './http'
+import { http, type ApiResponse } from './http'
 
 export type Product = {
   id: number
@@ -23,9 +23,6 @@ export type Notice = {
 export type CreateOrderPayload = {
   productId: number
   quantity: number
-  buyerName: string
-  buyerContact: string
-  lookupSecret: string
   remark: string
 }
 
@@ -41,6 +38,7 @@ export type OrderResult = {
   totalAmount: number
   message: string
   cardKeys: CardKeyRecord[]
+  remainingBalance: number
 }
 
 export type QueryOrdersPayload = {

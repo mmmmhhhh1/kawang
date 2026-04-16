@@ -1,13 +1,28 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createNotice, getNotices, updateNotice, updateNoticeStatus, type NoticePayload, type NoticeRecord } from '@/api/notices'
+import {
+  createNotice,
+  getNoticePage,
+  updateNotice,
+  updateNoticeStatus,
+  type NoticePayload,
+  type NoticeRecord,
+} from '@/api/notices'
+import { useCursorPager } from '@/utils/cursorPager'
+
+const PAGE_SIZE = 10
 
 const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
 const notices = ref<NoticeRecord[]>([])
+
+const filters = reactive({
+  keyword: '',
+  status: '' as '' | 'PUBLISHED' | 'HIDDEN',
+})
 
 const form = reactive<NoticePayload>({
   title: '',
@@ -17,13 +32,47 @@ const form = reactive<NoticePayload>({
   sortOrder: 10,
 })
 
-async function loadNotices() {
+const pager = useCursorPager()
+
+async function loadNotices(page = 1) {
   loading.value = true
   try {
-    notices.value = await getNotices()
+    const result = await getNoticePage({
+      size: PAGE_SIZE,
+      cursor: pager.getCursor(page),
+      keyword: filters.keyword || undefined,
+      status: filters.status || undefined,
+    })
+    notices.value = result.items
+    pager.commit(page, result.nextCursor, result.hasMore)
   } finally {
     loading.value = false
   }
+}
+
+function resetAndLoad() {
+  pager.reset()
+  void loadNotices(1)
+}
+
+function goPrevPage() {
+  if (!pager.canPrev.value) {
+    return
+  }
+  void loadNotices(pager.currentPage.value - 1)
+}
+
+function goNextPage() {
+  if (!pager.canNext.value) {
+    return
+  }
+  void loadNotices(pager.currentPage.value + 1)
+}
+
+function resetFilters() {
+  filters.keyword = ''
+  filters.status = ''
+  resetAndLoad()
 }
 
 function resetForm() {
@@ -61,7 +110,7 @@ async function submit() {
       ElMessage.success('公告创建成功')
     }
     dialogVisible.value = false
-    await loadNotices()
+    resetAndLoad()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '公告保存失败')
   } finally {
@@ -74,13 +123,15 @@ async function toggleStatus(row: NoticeRecord) {
   try {
     await updateNoticeStatus(row.id, nextStatus)
     ElMessage.success(nextStatus === 'PUBLISHED' ? '公告已发布' : '公告已隐藏')
-    await loadNotices()
+    resetAndLoad()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '状态更新失败')
   }
 }
 
-onMounted(loadNotices)
+onMounted(() => {
+  resetAndLoad()
+})
 </script>
 
 <template>
@@ -88,15 +139,25 @@ onMounted(loadNotices)
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>前台首页公告区的数据源，支持独立发布、隐藏和编辑内容。</p>
+          <p>公告列表按固定每页 10 条展示，切页仍然走游标分页，不会因为页数变深就越来越慢。</p>
           <h1>公告管理</h1>
         </div>
         <el-button type="primary" @click="openCreate">新建公告</el-button>
       </div>
 
+      <div class="toolbar">
+        <el-input v-model="filters.keyword" clearable placeholder="搜索公告标题或摘要" @keyup.enter="resetAndLoad" />
+        <el-select v-model="filters.status" clearable placeholder="按状态筛选">
+          <el-option label="已发布" value="PUBLISHED" />
+          <el-option label="已隐藏" value="HIDDEN" />
+        </el-select>
+        <el-button type="primary" @click="resetAndLoad">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
+      </div>
+
       <el-table :data="notices" v-loading="loading" border>
-        <el-table-column prop="title" label="标题" min-width="200" />
-        <el-table-column prop="summary" label="摘要" min-width="240" show-overflow-tooltip />
+        <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="summary" label="摘要" min-width="300" show-overflow-tooltip />
         <el-table-column prop="sortOrder" label="排序" width="90" />
         <el-table-column label="状态" width="120">
           <template #default="{ row }">
@@ -116,9 +177,17 @@ onMounted(loadNotices)
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pager-bar">
+        <span class="pager-bar__summary">第 {{ pager.currentPage }} 页，每页 {{ PAGE_SIZE }} 条</span>
+        <div class="pager-bar__actions">
+          <el-button :disabled="!pager.canPrev || loading" @click="goPrevPage">上一页</el-button>
+          <el-button type="primary" :disabled="!pager.canNext || loading" @click="goNextPage">下一页</el-button>
+        </div>
+      </div>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" width="min(760px, 94vw)" :title="editingId ? '编辑公告' : '新建公告'">
+    <el-dialog v-model="dialogVisible" width="min(1080px, 96vw)" :title="editingId ? '编辑公告' : '新建公告'">
       <el-form label-position="top">
         <div class="notice-form-grid">
           <el-form-item label="公告标题">
@@ -129,10 +198,24 @@ onMounted(loadNotices)
           </el-form-item>
         </div>
         <el-form-item label="公告摘要">
-          <el-input v-model="form.summary" maxlength="255" />
+          <el-input
+            v-model="form.summary"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+            maxlength="255"
+            show-word-limit
+            placeholder="这里适合放前台列表展示的摘要，会自动换行显示"
+          />
         </el-form-item>
         <el-form-item label="公告内容">
-          <el-input v-model="form.content" type="textarea" :rows="6" />
+          <el-input
+            v-model="form.content"
+            type="textarea"
+            :autosize="{ minRows: 12, maxRows: 24 }"
+            maxlength="5000"
+            show-word-limit
+            placeholder="支持多行输入，前台详情会保留换行格式显示"
+          />
         </el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
@@ -157,9 +240,40 @@ onMounted(loadNotices)
   gap: 0 16px;
 }
 
+.pager-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.pager-bar__summary {
+  color: #5f7285;
+  font-size: 13px;
+}
+
+.pager-bar__actions {
+  display: flex;
+  gap: 12px;
+}
+
 @media (max-width: 768px) {
   .notice-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .pager-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pager-bar__actions {
+    width: 100%;
+  }
+
+  .pager-bar__actions :deep(.el-button) {
+    flex: 1;
   }
 }
 </style>

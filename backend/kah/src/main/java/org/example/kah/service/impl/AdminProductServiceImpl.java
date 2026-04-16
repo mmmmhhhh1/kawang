@@ -15,6 +15,7 @@ import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.service.AdminProductService;
+import org.example.kah.service.OrderReservationService;
 import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
@@ -31,6 +32,7 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     private final ShopOrderMapper shopOrderMapper;
     private final ProductCacheRefreshService productCacheRefreshService;
     private final ProductLockExecutorService productLockExecutorService;
+    private final OrderReservationService orderReservationService;
 
     @Override
     public List<AdminProductView> list() {
@@ -75,6 +77,11 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         }
         productCacheRefreshService.refreshBaseAfterWrite(product.getId());
         productCacheRefreshService.refreshStatsAfterWrite(product.getId());
+        if (ProductStatus.ACTIVE.equals(product.getStatus())) {
+            orderReservationService.rebuildProductPool(product.getId());
+        } else {
+            orderReservationService.removeProductPool(product.getId());
+        }
         return toView(productMapper.findById(product.getId()));
     }
 
@@ -102,7 +109,7 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
                     productMapper.updateStatus(id, status);
                     return toView(productMapper.findById(id));
                 },
-                () -> productCacheRefreshService.refreshBaseAfterWrite(id));
+                () -> refreshProductState(id, status));
     }
 
     @Override
@@ -110,7 +117,10 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         productLockExecutorService.execute(
                 id,
                 () -> doDelete(id),
-                () -> productCacheRefreshService.removeProductAfterDelete(id));
+                () -> {
+                    productCacheRefreshService.removeProductAfterDelete(id);
+                    orderReservationService.removeProductPool(id);
+                });
     }
 
     @Override
@@ -144,6 +154,16 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
         productMapper.deleteById(id);
     }
 
+    private void refreshProductState(Long productId, String status) {
+        productCacheRefreshService.refreshBaseAfterWrite(productId);
+        productCacheRefreshService.refreshStatsAfterWrite(productId);
+        if (ProductStatus.ACTIVE.equals(status)) {
+            orderReservationService.rebuildProductPool(productId);
+        } else {
+            orderReservationService.removeProductPool(productId);
+        }
+    }
+
     private AdminProductView toView(ShopProduct product) {
         return new AdminProductView(
                 product.getId(),
@@ -162,7 +182,7 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
 
     private void ensureStatus(String status) {
         if (!ProductStatus.ACTIVE.equals(status) && !ProductStatus.INACTIVE.equals(status)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "商品状态非法");
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "商品状态不合法");
         }
     }
 }

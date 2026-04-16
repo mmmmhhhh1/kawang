@@ -3,6 +3,7 @@ package org.example.kah.service.impl;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -27,28 +28,30 @@ import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
+import org.example.kah.reservation.OrderReservation;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.MemberBalanceService;
 import org.example.kah.service.OrderFacadeService;
+import org.example.kah.service.OrderReservationService;
 import org.example.kah.service.ProductCacheRefreshService;
-import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.MaskingUtils;
 import org.example.kah.util.OrderNumberGenerator;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @RequiredArgsConstructor
 public class OrderFacadeServiceImpl extends AbstractServiceSupport implements OrderFacadeService {
 
-    private static final String LOGIN_REQUIRED = "\u8bf7\u5148\u767b\u5f55\u540e\u518d\u8d2d\u4e70";
-    private static final String LOOKUP_REQUIRED = "\u8bf7\u8f93\u5165\u8054\u7cfb\u65b9\u5f0f\u548c\u67e5\u5355\u5bc6\u7801\uff0c\u6216\u4f7f\u7528\u65e7\u8ba2\u5355\u53f7\u517c\u5bb9\u67e5\u8be2";
-    private static final String PRODUCT_NOT_FOUND = "\u5546\u54c1\u4e0d\u5b58\u5728\u6216\u5df2\u4e0b\u67b6";
-    private static final String INVALID_QUANTITY = "\u8d2d\u4e70\u6570\u91cf\u81f3\u5c11\u4e3a 1";
-    private static final String INSUFFICIENT_CARD_KEYS = "\u53ef\u7528\u5361\u5bc6\u4e0d\u8db3\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5";
-    private static final String BALANCE_ORDER_REMARK = "\u4f59\u989d\u8d2d\u4e70\u5361\u5bc6";
-    private static final String ORDER_SUCCESS_MESSAGE = "\u4e0b\u5355\u6210\u529f\uff0c\u5361\u5bc6\u5df2\u53d1\u653e";
+    private static final String LOGIN_REQUIRED = "请先登录后再购买";
+    private static final String LOOKUP_REQUIRED = "请输入联系方式和查单密码，或使用旧订单号兼容查询";
+    private static final String PRODUCT_NOT_FOUND = "商品不存在或已下架";
+    private static final String INVALID_QUANTITY = "购买数量至少为 1";
+    private static final String BALANCE_ORDER_REMARK = "余额购买卡密";
+    private static final String ORDER_SUCCESS_MESSAGE = "下单成功，卡密已发放";
+    private static final String ORDER_ASSIGN_FAILED = "卡密分配状态异常，请稍后重试";
 
     private final ProductMapper productMapper;
     private final ProductAccountMapper productAccountMapper;
@@ -56,18 +59,35 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     private final ShopOrderAccountMapper shopOrderAccountMapper;
     private final OrderNumberGenerator orderNumberGenerator;
     private final CryptoService cryptoService;
-    private final ProductLockExecutorService productLockExecutorService;
+    private final TransactionTemplate transactionTemplate;
     private final ProductCacheRefreshService productCacheRefreshService;
     private final MemberBalanceService memberBalanceService;
+    private final OrderReservationService orderReservationService;
 
     @Override
     @TrackMemberSeen
     public OrderCreatedResponse create(CreateOrderRequest request, AuthenticatedUser currentUser) {
         require(currentUser != null, ErrorCode.UNAUTHORIZED, LOGIN_REQUIRED);
-        return productLockExecutorService.execute(
-                request.productId(),
-                () -> doCreate(request, currentUser),
-                () -> productCacheRefreshService.refreshStatsAfterWrite(request.productId()));
+        int quantity = request.quantity() == null ? 0 : request.quantity();
+        if (quantity < 1) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, INVALID_QUANTITY);
+        }
+
+        ShopProduct snapshot = productMapper.findById(request.productId());
+        if (snapshot == null || !ProductStatus.ACTIVE.equals(snapshot.getStatus())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, PRODUCT_NOT_FOUND);
+        }
+
+        OrderReservation reservation = orderReservationService.reserve(request.productId(), currentUser.userId(), quantity);
+        try {
+            OrderCreatedResponse response = transactionTemplate.execute(status -> doCreate(request, currentUser, reservation));
+            orderReservationService.confirm(reservation);
+            productCacheRefreshService.refreshStatsAfterWrite(request.productId());
+            return response;
+        } catch (RuntimeException | Error exception) {
+            orderReservationService.rollback(reservation);
+            throw exception;
+        }
     }
 
     @Override
@@ -95,26 +115,20 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
         return shopOrderMapper.findByUserId(userId).stream().map(this::toView).toList();
     }
 
-    private OrderCreatedResponse doCreate(CreateOrderRequest request, AuthenticatedUser currentUser) {
-        MemberUser memberUser = memberBalanceService.lockActiveMember(currentUser.userId());
+    private OrderCreatedResponse doCreate(CreateOrderRequest request, AuthenticatedUser currentUser, OrderReservation reservation) {
         ShopProduct product = productMapper.findById(request.productId());
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, PRODUCT_NOT_FOUND);
         }
 
-        int quantity = request.quantity();
+        int quantity = reservation.items().size();
         if (quantity < 1) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, INVALID_QUANTITY);
         }
 
-        List<ProductAccount> cardKeys = productAccountMapper.lockAvailableCardKeys(product.getId(), quantity);
-        if (cardKeys.size() < quantity) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, INSUFFICIENT_CARD_KEYS);
-        }
-
         BigDecimal totalAmount = product.getPrice().multiply(BigDecimal.valueOf(quantity));
         String orderNo = orderNumberGenerator.next();
-        memberBalanceService.debitForOrder(memberUser, totalAmount, orderNo, BALANCE_ORDER_REMARK);
+        MemberUser memberUser = memberBalanceService.debitForOrder(currentUser.userId(), totalAmount, orderNo, BALANCE_ORDER_REMARK);
 
         ShopOrder order = new ShopOrder();
         order.setOrderNo(orderNo);
@@ -133,13 +147,15 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
         order.setStatus(OrderStatus.SUCCESS);
         shopOrderMapper.insert(order);
 
+        List<String> handles = reservation.items().stream().map(item -> item.handle()).toList();
         LocalDateTime now = LocalDateTime.now();
-        List<Long> cardKeyIds = cardKeys.stream().map(ProductAccount::getId).toList();
-        productAccountMapper.assignBatchToOrder(cardKeyIds, order.getId(), now);
+        int updated = productAccountMapper.assignBatchToOrderByHandles(product.getId(), handles, order.getId(), now);
+        if (updated != handles.size()) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, ORDER_ASSIGN_FAILED);
+        }
 
-        List<ShopOrderAccount> snapshots = cardKeys.stream()
-                .map(cardKey -> toSnapshot(order.getId(), cardKey))
-                .toList();
+        List<ProductAccount> cardKeys = loadAssignedCardKeys(product.getId(), handles, order.getId());
+        List<ShopOrderAccount> snapshots = cardKeys.stream().map(cardKey -> toSnapshot(order.getId(), cardKey)).toList();
         if (!snapshots.isEmpty()) {
             shopOrderAccountMapper.batchInsert(snapshots);
         }
@@ -153,6 +169,20 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 ORDER_SUCCESS_MESSAGE,
                 toCardKeyViews(cardKeys),
                 memberUser.getBalance());
+    }
+
+    private List<ProductAccount> loadAssignedCardKeys(Long productId, List<String> handles, Long orderId) {
+        Map<String, ProductAccount> accountMap = productAccountMapper.findByAllocationHandles(productId, handles).stream()
+                .collect(LinkedHashMap::new, (map, account) -> map.put(account.getAllocationHandle(), account), Map::putAll);
+        List<ProductAccount> orderedAccounts = new java.util.ArrayList<>();
+        for (String handle : handles) {
+            ProductAccount account = accountMap.get(handle);
+            if (account == null || account.getAssignedOrderId() == null || !orderId.equals(account.getAssignedOrderId())) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, ORDER_ASSIGN_FAILED);
+            }
+            orderedAccounts.add(account);
+        }
+        return orderedAccounts;
     }
 
     private ShopOrderAccount toSnapshot(Long orderId, ProductAccount cardKey) {

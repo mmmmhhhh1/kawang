@@ -14,7 +14,9 @@ import org.example.kah.entity.ShopProduct;
 import org.example.kah.mapper.AdminUserMapper;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
+import org.example.kah.service.OrderReservationService;
 import org.example.kah.service.ProductCacheRefreshService;
+import org.example.kah.util.AllocationHandleGenerator;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.MaskingUtils;
 import org.springframework.boot.ApplicationArguments;
@@ -25,10 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/**
- * 启动初始化器。
- * 用于同步默认管理员账号，并在卡密池为空时补充演示卡密。
- */
 @Component
 @RequiredArgsConstructor
 public class AdminBootstrapService implements ApplicationRunner {
@@ -40,24 +38,25 @@ public class AdminBootstrapService implements ApplicationRunner {
     private final ShopSecurityProperties securityProperties;
     private final CryptoService cryptoService;
     private final ProductCacheRefreshService productCacheRefreshService;
+    private final OrderReservationService orderReservationService;
 
-    /** 启动时执行初始化逻辑。 */
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
         syncAdminUser();
         productAccountMapper.normalizeLegacyPool();
+        orderReservationService.backfillMissingAllocationHandles();
         seedCardKeysIfNeeded();
         productMapper.syncStats();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
                 productCacheRefreshService.resetAndWarmupProductCaches();
+                orderReservationService.resetAndWarmupProductPools();
             }
         });
     }
 
-    /** 同步默认后台管理员账号，并强制标记为最高权限管理员。 */
     private void syncAdminUser() {
         AdminUser existing = adminUserMapper.findByUsername(securityProperties.admin().username());
         if (existing == null) {
@@ -78,7 +77,6 @@ public class AdminBootstrapService implements ApplicationRunner {
         adminUserMapper.updateProfile(existing);
     }
 
-    /** 在卡密池为空时补充演示卡密。 */
     private void seedCardKeysIfNeeded() {
         if (productAccountMapper.countByResourceType(ResourceType.CARD_KEY) > 0) {
             return;
@@ -100,6 +98,7 @@ public class AdminBootstrapService implements ApplicationRunner {
                 account.setResourceType(ResourceType.CARD_KEY);
                 account.setCardKeyCiphertext(cryptoService.encrypt(cardKey));
                 account.setCardKeyDigest(cryptoService.digest(product.getId() + ":" + cardKey));
+                account.setAllocationHandle(AllocationHandleGenerator.newHandle());
                 account.setSaleStatus(SaleStatus.UNSOLD);
                 account.setEnableStatus(EnableStatus.ENABLED);
                 productAccountMapper.insert(account);

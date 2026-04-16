@@ -119,4 +119,13 @@
         SET balance = #{balance}
         WHERE id = #{id}
     </update>
+
+    <update id="debitBalanceIfEnough">
+        UPDATE member_user
+        SET balance = balance - #{amount}
+        WHERE id = #{id}
+          AND status = 'ACTIVE'
+          AND balance = #{beforeBalance}
+          AND balance >= #{amount}
+    </update>
 </mapper>

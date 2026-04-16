@@ -7,23 +7,18 @@ import lombok.RequiredArgsConstructor;
 import org.example.kah.service.DistributedLockService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link DistributedLockService} 的 Redis 实现。
- * 使用 SET NX EX 获取锁，并通过 Lua 脚本确保只有锁持有者才能释放。
- */
 @Service
 @RequiredArgsConstructor
 public class RedisDistributedLockServiceImpl implements DistributedLockService {
 
     private static final Logger log = LoggerFactory.getLogger(RedisDistributedLockServiceImpl.class);
 
-    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-            Long.class);
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = loadUnlockScript();
 
     private final StringRedisTemplate stringRedisTemplate;
 
@@ -61,5 +56,12 @@ public class RedisDistributedLockServiceImpl implements DistributedLockService {
         } catch (Exception exception) {
             log.warn("释放 Redis 锁失败，key={}", key, exception);
         }
+    }
+
+    private static DefaultRedisScript<Long> loadUnlockScript() {
+        DefaultRedisScript<Long> script = new DefaultRedisScript<>();
+        script.setLocation(new ClassPathResource("lua/redis_unlock.lua"));
+        script.setResultType(Long.class);
+        return script;
     }
 }

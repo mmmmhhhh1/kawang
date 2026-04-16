@@ -2,8 +2,10 @@ package org.example.kah.service.impl;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.CursorPageResponse;
@@ -22,9 +24,11 @@ import org.example.kah.entity.UsedStatus;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.service.AdminAccountService;
+import org.example.kah.service.OrderReservationService;
 import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
+import org.example.kah.util.AllocationHandleGenerator;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.CursorCodecUtils;
 import org.example.kah.util.MaskingUtils;
@@ -40,6 +44,7 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
     private final CryptoService cryptoService;
     private final ProductLockExecutorService productLockExecutorService;
     private final ProductCacheRefreshService productCacheRefreshService;
+    private final OrderReservationService orderReservationService;
 
     @Override
     public List<AdminAccountView> list(Long productId, String saleStatus, String enableStatus) {
@@ -101,19 +106,29 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
 
     @Override
     public List<AdminAccountView> create(AdminAccountCreateRequest request) {
+        AtomicReference<PoolMutation> mutationRef = new AtomicReference<>(PoolMutation.none());
         return productLockExecutorService.execute(
                 request.productId(),
-                () -> doCreate(request),
-                () -> productCacheRefreshService.refreshStatsAfterWrite(request.productId()));
+                () -> {
+                    CreateBatchResult result = doCreate(request);
+                    mutationRef.set(new PoolMutation(result.addItems(), List.of()));
+                    return result.views();
+                },
+                () -> refreshProductState(request.productId(), mutationRef.get()));
     }
 
     @Override
     public AdminAccountView updateStatus(Long id, String enableStatus) {
         ProductAccount account = requireCardKey(id);
+        AtomicReference<PoolMutation> mutationRef = new AtomicReference<>(PoolMutation.none());
         return productLockExecutorService.execute(
                 account.getProductId(),
-                () -> doUpdateStatus(id, enableStatus),
-                () -> productCacheRefreshService.refreshStatsAfterWrite(account.getProductId()));
+                () -> {
+                    UpdateStatusResult result = doUpdateStatus(id, enableStatus);
+                    mutationRef.set(result.mutation());
+                    return result.view();
+                },
+                () -> refreshProductState(account.getProductId(), mutationRef.get()));
     }
 
     @Override
@@ -135,10 +150,11 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
     @Override
     public void delete(Long id) {
         ProductAccount account = requireCardKey(id);
+        PoolMutation mutation = PoolMutation.removeOnly(account.getAllocationHandle());
         productLockExecutorService.execute(
                 account.getProductId(),
                 () -> doDelete(id),
-                () -> productCacheRefreshService.refreshStatsAfterWrite(account.getProductId()));
+                () -> refreshProductState(account.getProductId(), mutation));
     }
 
     @Override
@@ -162,13 +178,14 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
                 .toList();
     }
 
-    private List<AdminAccountView> doCreate(AdminAccountCreateRequest request) {
+    private CreateBatchResult doCreate(AdminAccountCreateRequest request) {
         ShopProduct product = productMapper.findById(request.productId());
         if (product == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "商品不存在");
         }
 
         List<AdminAccountView> created = new ArrayList<>();
+        Map<String, Double> addItems = new LinkedHashMap<>();
         for (AdminAccountItemRequest item : request.items()) {
             String cardKey = trim(item.cardKey());
             ProductAccount account = new ProductAccount();
@@ -185,22 +202,19 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             account.setSaleStatus(SaleStatus.UNSOLD);
             account.setEnableStatus(EnableStatus.ENABLED);
             account.setUsedStatus(UsedStatus.UNUSED);
-            try {
-                productAccountMapper.insert(account);
-            } catch (DuplicateKeyException exception) {
-                throw new BusinessException(ErrorCode.BAD_REQUEST, "存在重复卡密：" + cardKey);
-            }
+            insertCardKey(account, cardKey);
             ProductAccount createdAccount = productAccountMapper.findDetailById(account.getId());
             if (createdAccount != null) {
                 created.add(toView(createdAccount));
+                addAvailabilityItem(addItems, createdAccount);
             }
         }
 
         productMapper.syncStatsByProductId(request.productId());
-        return created;
+        return new CreateBatchResult(created, addItems);
     }
 
-    private AdminAccountView doUpdateStatus(Long id, String enableStatus) {
+    private UpdateStatusResult doUpdateStatus(Long id, String enableStatus) {
         String safeEnableStatus = trim(enableStatus);
         if (!EnableStatus.ENABLED.equals(safeEnableStatus) && !EnableStatus.DISABLED.equals(safeEnableStatus)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅支持 ENABLED 或 DISABLED");
@@ -212,7 +226,11 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             productMapper.syncStatsByProductId(account.getProductId());
         }
 
-        return toView(productAccountMapper.findDetailById(id));
+        ProductAccount updatedAccount = productAccountMapper.findDetailById(id);
+        PoolMutation mutation = safeEnableStatus.equals(account.getEnableStatus())
+                ? PoolMutation.none()
+                : buildAvailabilityMutation(updatedAccount);
+        return new UpdateStatusResult(toView(updatedAccount), mutation);
     }
 
     private AdminAccountView doUpdateUsedStatus(Long id, String usedStatus) {
@@ -242,7 +260,7 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             return productLockExecutorService.execute(
                     productId,
                     () -> doBulkStatusByProduct(productId, enable),
-                    () -> productCacheRefreshService.refreshStatsAfterWrite(productId));
+                    () -> refreshProductState(productId, null));
         }
         if ("ALL".equalsIgnoreCase(safeScope)) {
             int updated = 0;
@@ -250,7 +268,7 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
                 updated += productLockExecutorService.execute(
                         affectedProductId,
                         () -> doBulkStatusByProduct(affectedProductId, enable),
-                        () -> productCacheRefreshService.refreshStatsAfterWrite(affectedProductId));
+                        () -> refreshProductState(affectedProductId, null));
             }
             return updated;
         }
@@ -282,6 +300,49 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         return account;
     }
 
+    private void insertCardKey(ProductAccount account, String cardKey) {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            account.setAllocationHandle(AllocationHandleGenerator.newHandle());
+            try {
+                productAccountMapper.insert(account);
+                return;
+            } catch (DuplicateKeyException exception) {
+                if (attempt == 4) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "存在重复卡密：" + cardKey);
+                }
+            }
+        }
+    }
+
+    private void refreshProductState(Long productId, PoolMutation mutation) {
+        productCacheRefreshService.refreshStatsAfterWrite(productId);
+        if (mutation == null) {
+            orderReservationService.rebuildProductPool(productId);
+            return;
+        }
+        orderReservationService.removeAvailableHandles(productId, mutation.removeHandles());
+        orderReservationService.addAvailableItems(productId, mutation.addItems());
+    }
+
+    private PoolMutation buildAvailabilityMutation(ProductAccount account) {
+        if (account == null || account.getAllocationHandle() == null || account.getAllocationHandle().isBlank()) {
+            return PoolMutation.none();
+        }
+        if (SaleStatus.UNSOLD.equals(account.getSaleStatus()) && EnableStatus.ENABLED.equals(account.getEnableStatus())) {
+            return PoolMutation.addOnly(Map.of(account.getAllocationHandle(), account.getId().doubleValue()));
+        }
+        return PoolMutation.removeOnly(account.getAllocationHandle());
+    }
+
+    private void addAvailabilityItem(Map<String, Double> addItems, ProductAccount account) {
+        if (account == null || account.getAllocationHandle() == null || account.getAllocationHandle().isBlank()) {
+            return;
+        }
+        if (SaleStatus.UNSOLD.equals(account.getSaleStatus()) && EnableStatus.ENABLED.equals(account.getEnableStatus())) {
+            addItems.put(account.getAllocationHandle(), account.getId().doubleValue());
+        }
+    }
+
     private AdminAccountView toView(ProductAccount account) {
         return new AdminAccountView(
                 account.getId(),
@@ -309,5 +370,28 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
             return null;
         }
         return cryptoService.decrypt(account.getNoteCiphertext());
+    }
+
+    private record CreateBatchResult(List<AdminAccountView> views, Map<String, Double> addItems) {
+    }
+
+    private record UpdateStatusResult(AdminAccountView view, PoolMutation mutation) {
+    }
+
+    private record PoolMutation(Map<String, Double> addItems, List<String> removeHandles) {
+        private static PoolMutation none() {
+            return new PoolMutation(Map.of(), List.of());
+        }
+
+        private static PoolMutation addOnly(Map<String, Double> addItems) {
+            return new PoolMutation(addItems == null ? Map.of() : addItems, List.of());
+        }
+
+        private static PoolMutation removeOnly(String handle) {
+            if (handle == null || handle.isBlank()) {
+                return none();
+            }
+            return new PoolMutation(Map.of(), List.of(handle));
+        }
     }
 }

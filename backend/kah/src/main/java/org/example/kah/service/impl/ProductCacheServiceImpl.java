@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.cache.ProductBaseCacheItem;
@@ -21,25 +20,25 @@ import org.example.kah.util.CacheTtlUtils;
 import org.example.kah.util.LongIdUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.connection.RedisConnection;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
 
-/**
- * {@link ProductCacheService} 的默认实现。
- * 把商品基础信息缓存、库存销量缓存、缓存重建互斥和回源逻辑统一收口，便于上层服务只关心业务流程。
- */
 @Service
 @RequiredArgsConstructor
 public class ProductCacheServiceImpl implements ProductCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(ProductCacheServiceImpl.class);
+    private static final int KEY_SCAN_BATCH_SIZE = 200;
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ProductCacheCodec productCacheCodec;
     private final ProductMapper productMapper;
     private final DistributedLockService distributedLockService;
 
-    /** 读取当前前台可售商品的基础缓存列表，缓存 miss 时互斥回源数据库。 */
     @Override
     public List<ProductBaseCacheItem> getActiveProductBases() {
         try {
@@ -54,7 +53,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 读取单商品基础缓存，商品不存在或已下架时返回空。 */
     @Override
     public ProductBaseCacheItem getActiveProductBase(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -72,7 +70,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 批量读取商品统计缓存，缺失部分按商品粒度回源并补齐缓存。 */
     @Override
     public Map<Long, ProductStatsCacheItem> getProductStats(List<Long> productIds) {
         List<Long> normalizedIds = LongIdUtils.normalizeDistinctPositiveIds(productIds);
@@ -113,7 +110,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 读取单商品统计缓存，缓存 miss 时互斥回源数据库。 */
     @Override
     public ProductStatsCacheItem getProductStats(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -132,7 +128,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 根据数据库实时状态刷新单商品基础缓存和活动商品列表缓存。 */
     @Override
     public void refreshProductBase(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -154,7 +149,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 baseCacheTtl());
     }
 
-    /** 根据数据库实时状态刷新单商品库存和销量缓存。 */
     @Override
     public void refreshProductStats(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -168,7 +162,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         safeSet(ProductCacheConstants.statsKey(productId), productCacheCodec.toJson(item), statsCacheTtl());
     }
 
-    /** 删除单商品基础缓存与活动商品列表缓存。 */
     @Override
     public void evictProductBase(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -177,7 +170,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         safeDelete(ProductCacheConstants.baseDetailKey(productId), ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
     }
 
-    /** 删除单商品统计缓存。 */
     @Override
     public void evictProductStats(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -186,7 +178,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         safeDelete(ProductCacheConstants.statsKey(productId));
     }
 
-    /** 商品被删除后写入空标记并清理统计缓存，避免前台继续命中旧数据。 */
     @Override
     public void removeProduct(Long productId) {
         if (!LongIdUtils.isPositive(productId)) {
@@ -200,20 +191,15 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 baseCacheTtl());
     }
 
-    /** 清理全部商品相关缓存。 */
     @Override
     public void clearAllProductCaches() {
         try {
-            Set<String> keys = stringRedisTemplate.keys(ProductCacheConstants.PRODUCT_CACHE_KEY_PREFIX + "*");
-            if (keys != null && !keys.isEmpty()) {
-                stringRedisTemplate.delete(keys);
-            }
+            deleteKeysByPattern(ProductCacheConstants.PRODUCT_CACHE_KEY_PREFIX + "*");
         } catch (Exception exception) {
             log.warn("清理全部商品缓存失败", exception);
         }
     }
 
-    /** 预热当前活动商品基础列表缓存。 */
     @Override
     public void warmupActiveProductBases() {
         safeSet(
@@ -222,7 +208,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 baseCacheTtl());
     }
 
-    /** 使用互斥锁重建活动商品基础列表缓存，避免热点 key 击穿。 */
     private List<ProductBaseCacheItem> rebuildActiveBaseListWithMutex() {
         String token = tryAcquireCacheRebuildLock(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_LOCK_KEY);
         if (token != null) {
@@ -245,7 +230,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         return waited != null ? waited : loadActiveProductBasesFromDb();
     }
 
-    /** 使用互斥锁重建单商品基础缓存。 */
     private ProductBaseCacheItem rebuildBaseDetailWithMutex(Long productId) {
         String cacheKey = ProductCacheConstants.baseDetailKey(productId);
         String lockKey = ProductCacheConstants.baseDetailLockKey(productId);
@@ -274,7 +258,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         return waited != null ? waited : loadActiveProductBaseFromDb(productId);
     }
 
-    /** 使用互斥锁重建单商品统计缓存。 */
     private ProductStatsCacheItem rebuildStatsWithMutex(Long productId) {
         String cacheKey = ProductCacheConstants.statsKey(productId);
         String lockKey = ProductCacheConstants.statsLockKey(productId);
@@ -303,12 +286,10 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         return waited != null ? waited : loadProductStatsFromDb(productId);
     }
 
-    /** 从数据库加载所有活动商品的基础信息。 */
     private List<ProductBaseCacheItem> loadActiveProductBasesFromDb() {
         return productMapper.findActiveProducts().stream().map(this::toBaseItem).toList();
     }
 
-    /** 从数据库加载单商品基础信息，下架商品视为不存在。 */
     private ProductBaseCacheItem loadActiveProductBaseFromDb(Long productId) {
         ShopProduct product = productMapper.findById(productId);
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
@@ -317,12 +298,10 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         return toBaseItem(product);
     }
 
-    /** 从数据库读取单商品实时库存和销量。 */
     private ProductStatsCacheItem loadProductStatsFromDb(Long productId) {
         return productMapper.findStatsByIds(List.of(productId)).stream().findFirst().orElse(null);
     }
 
-    /** 从数据库批量读取商品实时库存和销量。 */
     private Map<Long, ProductStatsCacheItem> loadStatsMapFromDb(List<Long> productIds) {
         Map<Long, ProductStatsCacheItem> result = new LinkedHashMap<>();
         for (ProductStatsCacheItem item : productMapper.findStatsByIds(productIds)) {
@@ -331,7 +310,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         return result;
     }
 
-    /** 将商品实体映射为基础缓存对象。 */
     private ProductBaseCacheItem toBaseItem(ShopProduct product) {
         return new ProductBaseCacheItem(
                 product.getId(),
@@ -345,7 +323,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 product.getSortOrder());
     }
 
-    /** 统一处理缓存反序列化失败时的 key 驱逐。 */
     private <T> T parseCachedValue(String cacheKey, String cached, Function<String, T> parser) {
         try {
             return parser.apply(cached);
@@ -355,7 +332,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 在热点 key 重建期间，短暂等待其他线程把缓存写回。 */
     private <T> T waitForCacheValue(String cacheKey, Function<String, T> parser) {
         for (int attempt = 0; attempt < 3; attempt++) {
             sleepBriefly();
@@ -371,7 +347,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         return null;
     }
 
-    /** 尝试获取缓存重建锁，Redis 异常时降级为直接回源数据库。 */
     private String tryAcquireCacheRebuildLock(String lockKey) {
         try {
             return distributedLockService.tryAcquire(
@@ -384,7 +359,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 安全写入缓存，异常只记录日志，不影响主业务结果。 */
     private void safeSet(String key, String value, Duration ttl) {
         try {
             stringRedisTemplate.opsForValue().set(key, value, ttl);
@@ -393,7 +367,6 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 安全删除缓存，异常只记录日志，不影响主业务结果。 */
     private void safeDelete(String... keys) {
         if (keys == null || keys.length == 0) {
             return;
@@ -405,22 +378,45 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         }
     }
 
-    /** 生成基础信息缓存的随机 TTL。 */
+    private void deleteKeysByPattern(String pattern) {
+        stringRedisTemplate.execute((RedisCallback<Void>) connection -> {
+            ScanOptions scanOptions = ScanOptions.scanOptions().match(pattern).count(KEY_SCAN_BATCH_SIZE).build();
+            try (Cursor<byte[]> cursor = connection.scan(scanOptions)) {
+                List<byte[]> batch = new ArrayList<>();
+                while (cursor.hasNext()) {
+                    batch.add(cursor.next());
+                    if (batch.size() >= KEY_SCAN_BATCH_SIZE) {
+                        deleteRawKeys(connection, batch);
+                    }
+                }
+                deleteRawKeys(connection, batch);
+            } catch (Exception exception) {
+                throw new IllegalStateException("扫描并删除 Redis 键失败", exception);
+            }
+            return null;
+        });
+    }
+
+    private void deleteRawKeys(RedisConnection connection, List<byte[]> batch) {
+        if (batch.isEmpty()) {
+            return;
+        }
+        connection.del(batch.toArray(byte[][]::new));
+        batch.clear();
+    }
+
     private Duration baseCacheTtl() {
         return CacheTtlUtils.withJitter(ProductCacheConstants.BASE_CACHE_TTL, ProductCacheConstants.BASE_CACHE_JITTER);
     }
 
-    /** 生成统计缓存的随机 TTL。 */
     private Duration statsCacheTtl() {
         return CacheTtlUtils.withJitter(ProductCacheConstants.STATS_CACHE_TTL, ProductCacheConstants.STATS_CACHE_JITTER);
     }
 
-    /** 生成空值缓存的随机 TTL。 */
     private Duration nullCacheTtl() {
         return CacheTtlUtils.withJitter(ProductCacheConstants.NULL_CACHE_TTL, ProductCacheConstants.NULL_CACHE_JITTER);
     }
 
-    /** 热点 key 等待重建时的短暂休眠。 */
     private void sleepBriefly() {
         try {
             Thread.sleep(60L);

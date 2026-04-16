@@ -14,20 +14,25 @@ import org.example.kah.dto.publicapi.NoticeView;
 import org.example.kah.entity.NoticeStatus;
 import org.example.kah.entity.ShopNotice;
 import org.example.kah.mapper.NoticeMapper;
+import org.example.kah.service.NoticeCacheService;
 import org.example.kah.service.NoticeService;
 import org.example.kah.service.impl.base.AbstractCrudService;
 import org.example.kah.util.CursorCodecUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
 public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> implements NoticeService {
 
     private final NoticeMapper noticeMapper;
+    private final NoticeCacheService noticeCacheService;
 
     @Override
     public List<NoticeView> listPublished() {
-        return noticeMapper.findPublished().stream().map(this::toPublicView).toList();
+        return noticeCacheService.getPublishedNotices();
     }
 
     @Override
@@ -57,28 +62,34 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
     }
 
     @Override
+    @Transactional
     public AdminNoticeView create(AdminNoticeSaveRequest request) {
         ensureStatus(request.status());
         ShopNotice notice = new ShopNotice();
         fillNotice(notice, request);
         noticeMapper.insert(notice);
+        refreshPublishedNoticeCacheAfterCommit();
         return toAdminView(noticeMapper.findById(notice.getId()));
     }
 
     @Override
+    @Transactional
     public AdminNoticeView update(Long id, AdminNoticeSaveRequest request) {
         ensureStatus(request.status());
         ShopNotice notice = requireById(id);
         fillNotice(notice, request);
         noticeMapper.update(notice);
+        refreshPublishedNoticeCacheAfterCommit();
         return toAdminView(noticeMapper.findById(id));
     }
 
     @Override
+    @Transactional
     public AdminNoticeView updateStatus(Long id, String status) {
         ensureStatus(status);
         requireById(id);
         noticeMapper.updateStatus(id, status);
+        refreshPublishedNoticeCacheAfterCommit();
         return toAdminView(noticeMapper.findById(id));
     }
 
@@ -105,12 +116,8 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
 
     private void ensureStatus(String status) {
         if (!NoticeStatus.PUBLISHED.equals(status) && !NoticeStatus.HIDDEN.equals(status)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "公告状态非法");
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "公告状态不合法");
         }
-    }
-
-    private NoticeView toPublicView(ShopNotice notice) {
-        return new NoticeView(notice.getId(), notice.getTitle(), notice.getSummary(), notice.getContent(), notice.getPublishedAt());
     }
 
     private AdminNoticeView toAdminView(ShopNotice notice) {
@@ -123,5 +130,18 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
                 notice.getSortOrder(),
                 notice.getPublishedAt(),
                 notice.getUpdatedAt());
+    }
+
+    private void refreshPublishedNoticeCacheAfterCommit() {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    noticeCacheService.refreshPublishedNotices();
+                }
+            });
+            return;
+        }
+        noticeCacheService.refreshPublishedNotices();
     }
 }

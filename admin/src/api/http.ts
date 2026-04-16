@@ -6,10 +6,24 @@ export type ApiResponse<T> = {
   data: T
 }
 
+export type PageResult<T> = {
+  items: T[]
+  total: number
+  page: number
+  size: number
+}
+
+export type CursorPageResponse<T> = {
+  items: T[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
 const TOKEN_KEY = 'kawang_admin_token'
+const ADMIN_BASE_PATH = '/api/admin'
 
 export const adminHttp = axios.create({
-  baseURL: '/api/admin',
+  baseURL: ADMIN_BASE_PATH,
   timeout: 10000,
 })
 
@@ -34,6 +48,20 @@ adminHttp.interceptors.response.use(
     return Promise.reject(error)
   },
 )
+
+export function normalizeAdminRequestPath(url: string) {
+  if (!url) {
+    return url
+  }
+  if (/^https?:\/\//i.test(url) || url.startsWith('//')) {
+    return url
+  }
+  if (url.startsWith(ADMIN_BASE_PATH)) {
+    const normalized = url.slice(ADMIN_BASE_PATH.length)
+    return normalized || '/'
+  }
+  return url
+}
 
 export function getStoredToken() {
   return localStorage.getItem(TOKEN_KEY)

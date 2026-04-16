@@ -12,6 +12,7 @@ export type MemberProfile = {
   id: number
   username?: string | null
   email?: string | null
+  balance?: number | null
 }
 
 export type MemberAuthResponse = {
@@ -42,6 +43,23 @@ export type EmailRegisterPayload = {
   code: string
   username: string
   password: string
+}
+
+export type CursorPageResponse<T> = {
+  items: T[]
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+export type MemberRechargeItem = {
+  id: number
+  requestNo: string
+  amount: number
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  payerRemark: string | null
+  rejectReason: string | null
+  reviewedAt: string | null
+  createdAt: string
 }
 
 function parseStoredProfile() {
@@ -95,6 +113,25 @@ export async function fetchMemberProfile() {
   setStoredProfileRaw(JSON.stringify(profile))
   memberProfileState.value = profile
   return profile
+}
+
+export async function getMyRecharges(size = 10, cursor?: string | null) {
+  const response = await http.get<ApiResponse<CursorPageResponse<MemberRechargeItem>>>('/auth/recharges', {
+    params: {
+      size,
+      cursor: cursor || undefined,
+    },
+  })
+  return response.data.data
+}
+
+export async function createRecharge(payload: FormData) {
+  const response = await http.post<ApiResponse<MemberRechargeItem>>('/auth/recharges', payload, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data.data
 }
 
 export function logoutMember() {

@@ -1,9 +1,11 @@
 package org.example.kah.service.impl;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.CursorPageResponse;
@@ -24,6 +26,7 @@ import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.service.AdminOrderService;
 import org.example.kah.service.MemberBalanceService;
+import org.example.kah.service.OrderReservationService;
 import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.ProductLockExecutorService;
 import org.example.kah.service.impl.base.AbstractCrudService;
@@ -36,11 +39,11 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> implements AdminOrderService {
 
-    private static final String BALANCE_ORDER_DELETE_FORBIDDEN = "\u4f59\u989d\u652f\u4ed8\u8ba2\u5355\u4e0d\u5141\u8bb8\u786c\u5220\u9664\uff0c\u8bf7\u4f7f\u7528\u5173\u95ed\u5e76\u9000\u6b3e";
-    private static final String ENTITY_LABEL = "\u8ba2\u5355";
-    private static final String ORDER_NOT_FOUND = "\u8ba2\u5355\u4e0d\u5b58\u5728";
-    private static final String ORDER_CLOSE_FORBIDDEN = "\u4ec5\u6210\u529f\u8ba2\u5355\u53ef\u5173\u95ed";
-    private static final String ORDER_REFUND_REMARK = "\u8ba2\u5355\u5173\u95ed\u9000\u6b3e";
+    private static final String BALANCE_ORDER_DELETE_FORBIDDEN = "余额支付订单不允许硬删除，请使用关闭并退款";
+    private static final String ENTITY_LABEL = "订单";
+    private static final String ORDER_NOT_FOUND = "订单不存在";
+    private static final String ORDER_CLOSE_FORBIDDEN = "仅成功订单可关闭";
+    private static final String ORDER_REFUND_REMARK = "订单关闭退款";
 
     private final ShopOrderMapper shopOrderMapper;
     private final ShopOrderAccountMapper shopOrderAccountMapper;
@@ -50,6 +53,7 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
     private final ProductLockExecutorService productLockExecutorService;
     private final ProductCacheRefreshService productCacheRefreshService;
     private final MemberBalanceService memberBalanceService;
+    private final OrderReservationService orderReservationService;
 
     @Override
     public CursorPageResponse<AdminOrderItemView> list(int size, String cursor, String status, Long productId, String keyword) {
@@ -86,10 +90,18 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
     @Override
     public AdminOrderDetailView close(Long id, String reason) {
         ShopOrder snapshot = requireById(id);
+        AtomicReference<Map<String, Double>> restoredItemsRef = new AtomicReference<>(Map.of());
         return productLockExecutorService.execute(
                 snapshot.getProductId(),
-                () -> doClose(id, reason),
-                () -> productCacheRefreshService.refreshStatsAfterWrite(snapshot.getProductId()));
+                () -> {
+                    CloseResult result = doClose(id, reason);
+                    restoredItemsRef.set(result.restoredItems());
+                    return result.view();
+                },
+                () -> {
+                    productCacheRefreshService.refreshStatsAfterWrite(snapshot.getProductId());
+                    orderReservationService.addAvailableItems(snapshot.getProductId(), restoredItemsRef.get());
+                });
     }
 
     @Override
@@ -111,7 +123,7 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
         return ENTITY_LABEL;
     }
 
-    private AdminOrderDetailView doClose(Long id, String reason) {
+    private CloseResult doClose(Long id, String reason) {
         ShopOrder order = shopOrderMapper.lockById(id);
         if (order == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, ORDER_NOT_FOUND);
@@ -137,7 +149,21 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
         }
 
         shopOrderMapper.close(id, trim(reason));
-        return detail(id);
+        return new CloseResult(detail(id), toAvailableItems(accounts));
+    }
+
+    private Map<String, Double> toAvailableItems(List<ProductAccount> accounts) {
+        Map<String, Double> items = new LinkedHashMap<>();
+        for (ProductAccount account : accounts) {
+            if (!EnableStatus.ENABLED.equals(account.getEnableStatus())) {
+                continue;
+            }
+            if (account.getAllocationHandle() == null || account.getAllocationHandle().isBlank()) {
+                continue;
+            }
+            items.put(account.getAllocationHandle(), account.getId().doubleValue());
+        }
+        return items;
     }
 
     private boolean isBalanceOrder(ShopOrder order) {
@@ -195,5 +221,8 @@ public class AdminOrderServiceImpl extends AbstractCrudService<ShopOrder, Long> 
             return account.getMaskedAccountSnapshot();
         }
         return null;
+    }
+
+    private record CloseResult(AdminOrderDetailView view, Map<String, Double> restoredItems) {
     }
 }

@@ -36,4 +36,6 @@ public interface MemberUserMapper {
     int mergeActivityState(@Param("id") Long id, @Param("lastLoginAt") LocalDateTime lastLoginAt, @Param("lastSeenAt") LocalDateTime lastSeenAt);
 
     int updateBalance(@Param("id") Long id, @Param("balance") BigDecimal balance);
+
+    int debitBalanceIfEnough(@Param("id") Long id, @Param("amount") BigDecimal amount, @Param("beforeBalance") BigDecimal beforeBalance);
 }

@@ -7,7 +7,7 @@ public interface MemberBalanceService {
 
     MemberUser lockActiveMember(Long userId);
 
-    MemberUser debitForOrder(MemberUser memberUser, BigDecimal amount, String bizNo, String remark);
+    MemberUser debitForOrder(Long userId, BigDecimal amount, String bizNo, String remark);
 
     MemberUser creditForRecharge(MemberUser memberUser, BigDecimal amount, String bizNo, String remark);
 

@@ -13,11 +13,14 @@ import org.example.kah.mapper.MemberBalanceFlowMapper;
 import org.example.kah.mapper.MemberUserMapper;
 import org.example.kah.service.MemberBalanceService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
 public class MemberBalanceServiceImpl extends AbstractServiceSupport implements MemberBalanceService {
+
+    private static final int ORDER_DEBIT_RETRY_TIMES = 3;
 
     private final MemberUserMapper memberUserMapper;
     private final MemberBalanceFlowMapper memberBalanceFlowMapper;
@@ -36,19 +39,31 @@ public class MemberBalanceServiceImpl extends AbstractServiceSupport implements 
     }
 
     @Override
-    public MemberUser debitForOrder(MemberUser memberUser, BigDecimal amount, String bizNo, String remark) {
+    public MemberUser debitForOrder(Long userId, BigDecimal amount, String bizNo, String remark) {
         require(amount != null && amount.compareTo(BigDecimal.ZERO) > 0, "扣款金额必须大于 0");
-        require(
-                memberBalanceFlowMapper.countByBiz(BalanceBizType.ORDER_DEBIT, bizNo, BalanceDirection.OUT) == 0,
-                ErrorCode.BAD_REQUEST,
-                "订单扣款已经处理过了");
-        BigDecimal before = safeBalance(memberUser.getBalance());
-        BigDecimal after = before.subtract(amount);
-        require(after.compareTo(BigDecimal.ZERO) >= 0, "余额不足");
-        saveFlow(memberUser.getId(), BalanceBizType.ORDER_DEBIT, bizNo, BalanceDirection.OUT, amount, before, after, remark);
-        memberUserMapper.updateBalance(memberUser.getId(), after);
-        memberUser.setBalance(after);
-        return memberUser;
+        for (int attempt = 0; attempt < ORDER_DEBIT_RETRY_TIMES; attempt++) {
+            MemberUser memberUser = memberUserMapper.findById(userId);
+            if (memberUser == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "会员不存在");
+            }
+            require(MemberStatus.ACTIVE.equals(memberUser.getStatus()), ErrorCode.FORBIDDEN, "会员账号已被禁用");
+
+            BigDecimal before = safeBalance(memberUser.getBalance());
+            BigDecimal after = before.subtract(amount);
+            require(after.compareTo(BigDecimal.ZERO) >= 0, "余额不足");
+
+            int updated = memberUserMapper.debitBalanceIfEnough(memberUser.getId(), amount, before);
+            if (updated == 1) {
+                try {
+                    saveFlow(memberUser.getId(), BalanceBizType.ORDER_DEBIT, bizNo, BalanceDirection.OUT, amount, before, after, remark);
+                } catch (DuplicateKeyException exception) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "订单扣款已经处理过了");
+                }
+                memberUser.setBalance(after);
+                return memberUser;
+            }
+        }
+        throw new BusinessException(ErrorCode.BAD_REQUEST, "余额变动频繁，请稍后重试");
     }
 
     @Override

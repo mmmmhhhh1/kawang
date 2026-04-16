@@ -1,18 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Document, DocumentCopy, UserFilled } from '@element-plus/icons-vue'
-import { fetchMemberProfile, memberProfileState } from '@/api/auth'
+import { Bell, Document, UserFilled } from '@element-plus/icons-vue'
+import {
+  createRecharge,
+  fetchMemberProfile,
+  getMyRecharges,
+  memberProfileState,
+  type MemberRechargeItem,
+} from '@/api/auth'
 import { getMyOrders, type CardKeyRecord, type OrderRecord } from '@/api/shop'
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/format'
 
 const profile = memberProfileState
 const loading = ref(false)
+const rechargeLoading = ref(false)
+const rechargeSubmitting = ref(false)
+const rechargeVisible = ref(false)
 const orders = ref<OrderRecord[]>([])
+const recharges = ref<MemberRechargeItem[]>([])
+const rechargeCursor = ref<string | null>(null)
+const rechargeHasMore = ref(false)
+const screenshotFile = ref<File | null>(null)
+
+const rechargeForm = reactive({
+  amount: '',
+  payerRemark: '',
+})
 
 const totalAmount = computed(() => orders.value.reduce((sum, item) => sum + Number(item.totalAmount ?? 0), 0))
 const totalQuantity = computed(() => orders.value.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0))
 const totalCardKeys = computed(() => orders.value.reduce((sum, item) => sum + (item.cardKeys?.length ?? 0), 0))
+const balance = computed(() => Number(profile.value?.balance ?? 0))
+const alipayQrUrl = '/api/public/payment/alipay-qr'
 
 function normalizeProfileText(value?: string | null) {
   const text = value?.trim()
@@ -23,29 +43,25 @@ const displayUsername = computed(() => normalizeProfileText(profile.value?.usern
 const displayEmail = computed(() => normalizeProfileText(profile.value?.email))
 
 function formatEnableStatus(status: CardKeyRecord['enableStatus']) {
-  return status === 'DISABLED' ? '已停用' : '可用'
+  return status === 'DISABLED' ? '已停用' : '已启用'
 }
 
-async function copyCardKeys(cardKeys: CardKeyRecord[]) {
-  if (!cardKeys.length) {
-    ElMessage.warning('当前订单没有可复制的卡密')
-    return
-  }
+function formatRechargeStatus(status: MemberRechargeItem['status']) {
+  if (status === 'APPROVED') return '已通过'
+  if (status === 'REJECTED') return '已拒绝'
+  return '待审核'
+}
 
-  try {
-    await navigator.clipboard.writeText(cardKeys.map((item) => item.cardKey).join('\n'))
-    ElMessage.success('卡密已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制')
-  }
+function rechargeTagType(status: MemberRechargeItem['status']) {
+  if (status === 'APPROVED') return 'success'
+  if (status === 'REJECTED') return 'danger'
+  return 'warning'
 }
 
 async function loadOrders() {
   loading.value = true
   try {
-    if (!profile.value) {
-      await fetchMemberProfile()
-    }
+    await fetchMemberProfile()
     orders.value = await getMyOrders()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '订单加载失败')
@@ -54,7 +70,66 @@ async function loadOrders() {
   }
 }
 
-onMounted(loadOrders)
+async function loadRecharges(reset = false) {
+  rechargeLoading.value = true
+  try {
+    const result = await getMyRecharges(10, reset ? null : rechargeCursor.value)
+    recharges.value = reset ? result.items : [...recharges.value, ...result.items]
+    rechargeCursor.value = result.nextCursor
+    rechargeHasMore.value = result.hasMore
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message ?? '充值记录加载失败')
+  } finally {
+    rechargeLoading.value = false
+  }
+}
+
+function openRechargeDialog() {
+  rechargeForm.amount = ''
+  rechargeForm.payerRemark = ''
+  screenshotFile.value = null
+  rechargeVisible.value = true
+}
+
+function handleFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  screenshotFile.value = target.files?.[0] ?? null
+}
+
+async function submitRecharge() {
+  const amount = Number(rechargeForm.amount)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    ElMessage.warning('请输入正确的充值金额')
+    return
+  }
+  if (!screenshotFile.value) {
+    ElMessage.warning('请上传付款截图')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('amount', String(amount))
+  formData.append('screenshot', screenshotFile.value)
+  if (rechargeForm.payerRemark.trim()) {
+    formData.append('payerRemark', rechargeForm.payerRemark.trim())
+  }
+
+  rechargeSubmitting.value = true
+  try {
+    await createRecharge(formData)
+    ElMessage.success('充值申请已提交，请等待后台审核')
+    rechargeVisible.value = false
+    await loadRecharges(true)
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message ?? '充值申请提交失败')
+  } finally {
+    rechargeSubmitting.value = false
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([loadOrders(), loadRecharges(true)])
+})
 </script>
 
 <template>
@@ -62,10 +137,10 @@ onMounted(loadOrders)
     <section class="section-shell member-page-card">
       <div class="section-heading member-page-card__heading">
         <div>
-          <span class="section-kicker">会员</span>
-          <h2>我的订单</h2>
+          <span class="section-kicker">会员中心</span>
+          <h2>我的订单与余额</h2>
         </div>
-        <p>这里只显示已绑定到当前会员账号的订单记录，并同步展示已发放的卡密。</p>
+        <p>这里可以查看当前余额、历史订单和充值申请进度。</p>
       </div>
 
       <div class="member-summary">
@@ -77,8 +152,13 @@ onMounted(loadOrders)
             <strong v-if="!displayUsername && !displayEmail">-</strong>
           </div>
         </article>
+        <article class="member-summary__item is-balance">
+          <span>当前余额</span>
+          <strong>{{ formatCurrency(balance) }}</strong>
+          <el-button type="primary" size="small" @click="openRechargeDialog">去充值</el-button>
+        </article>
         <article class="member-summary__item">
-          <span>订单数量</span>
+          <span>订单数</span>
           <strong>{{ orders.length }}</strong>
         </article>
         <article class="member-summary__item">
@@ -90,7 +170,7 @@ onMounted(loadOrders)
           <strong>{{ formatCurrency(totalAmount) }}</strong>
         </article>
         <article class="member-summary__item">
-          <span>卡密条数</span>
+          <span>卡密数量</span>
           <strong>{{ totalCardKeys }}</strong>
         </article>
       </div>
@@ -100,9 +180,9 @@ onMounted(loadOrders)
       <div class="section-heading member-page-card__heading">
         <div>
           <span class="section-kicker">订单</span>
-          <h2>绑定订单列表</h2>
+          <h2>关联订单</h2>
         </div>
-        <p>登录状态下提交的订单会自动写入 <code>user_id</code> 绑定关系，后续可在这里再次查看卡密。</p>
+        <p>使用余额支付的订单会自动绑定到当前会员账号。</p>
       </div>
 
       <el-skeleton :loading="loading" animated :rows="6">
@@ -136,15 +216,6 @@ onMounted(loadOrders)
             <div class="member-order-card__keys">
               <div class="member-order-card__keys-head">
                 <strong>卡密列表</strong>
-                <button
-                  v-if="order.cardKeys?.length"
-                  class="secondary-action member-order-card__copy"
-                  type="button"
-                  @click="copyCardKeys(order.cardKeys)"
-                >
-                  <el-icon><DocumentCopy /></el-icon>
-                  复制全部卡密
-                </button>
               </div>
 
               <div v-if="order.cardKeys?.length" class="card-key-list">
@@ -155,32 +226,121 @@ onMounted(loadOrders)
                   </span>
                 </div>
               </div>
-              <div v-else class="card-key-empty">该订单没有可展示的卡密，可能是历史旧订单。</div>
+              <div v-else class="card-key-empty">该订单暂时还没有卡密。</div>
             </div>
           </article>
         </div>
 
-        <el-empty v-else description="当前账号还没有绑定订单" />
+        <el-empty v-else description="暂时还没有订单" />
       </el-skeleton>
+    </section>
+
+    <section class="section-shell member-page-card">
+      <div class="section-heading member-page-card__heading">
+        <div>
+          <span class="section-kicker">充值</span>
+          <h2>充值记录</h2>
+        </div>
+        <p>提交充值申请后，等待后台审核通过即可自动入账。</p>
+      </div>
+
+      <div v-if="recharges.length" class="recharge-list">
+        <article v-for="item in recharges" :key="item.id" class="recharge-card">
+          <div class="recharge-card__top">
+            <div>
+              <strong>{{ item.requestNo }}</strong>
+              <span>{{ formatDateTime(item.createdAt) }}</span>
+            </div>
+            <el-tag :type="rechargeTagType(item.status)">{{ formatRechargeStatus(item.status) }}</el-tag>
+          </div>
+          <div class="recharge-card__meta">
+            <div>
+              <span>金额</span>
+              <strong>{{ formatCurrency(item.amount) }}</strong>
+            </div>
+            <div>
+              <span>付款备注</span>
+              <strong>{{ item.payerRemark || '-' }}</strong>
+            </div>
+            <div>
+              <span>审核时间</span>
+              <strong>{{ item.reviewedAt ? formatDateTime(item.reviewedAt) : '-' }}</strong>
+            </div>
+          </div>
+          <p v-if="item.rejectReason" class="recharge-card__reject">拒绝原因：{{ item.rejectReason }}</p>
+        </article>
+      </div>
+      <el-empty v-else description="暂时还没有充值记录" />
+
+      <div v-if="rechargeHasMore" class="recharge-load-more">
+        <el-button :loading="rechargeLoading" @click="loadRecharges(false)">加载更多</el-button>
+      </div>
     </section>
 
     <section class="member-tips">
       <article class="glass-card member-tip-card">
         <span class="section-chip">
-          <el-icon><UserFilled /></el-icon>
-          会员绑定
+          <el-icon><Bell /></el-icon>
+          余额支付
         </span>
-        <p>登录后下单，后端会把订单自动绑定到当前会员账号，方便你后续再次查看卡密。</p>
+        <p>新订单仅支持余额支付，充值审核通过后会自动增加会员余额。</p>
       </article>
 
       <article class="glass-card member-tip-card">
         <span class="section-chip">
           <el-icon><Document /></el-icon>
-          游客订单
+          游客查单
         </span>
-        <p>如果你之前是游客购买，仍然可以在订单查询页用“联系方式 + 查单密码”或旧订单兼容方式查询历史记录。</p>
+        <p>历史游客订单仍可在查单页查询，但新订单需要登录会员账号后才能查看。</p>
+      </article>
+
+      <article class="glass-card member-tip-card">
+        <span class="section-chip">
+          <el-icon><UserFilled /></el-icon>
+          人工审核
+        </span>
+        <p>充值申请会实时推送到后台，只有审核通过后余额才会到账。</p>
       </article>
     </section>
+
+    <el-dialog v-model="rechargeVisible" width="min(920px, 94vw)" title="余额充值申请">
+      <div class="recharge-dialog">
+        <div class="recharge-dialog__qr">
+          <span class="soft-chip">支付宝收款码</span>
+          <div class="recharge-dialog__qr-card">
+            <img :src="alipayQrUrl" alt="支付宝收款码" />
+          </div>
+          <p>请先完成转账，再上传付款截图提交审核。</p>
+        </div>
+
+        <div class="recharge-dialog__form">
+          <el-form label-position="top">
+            <el-form-item label="充值金额">
+              <el-input v-model="rechargeForm.amount" placeholder="请输入充值金额，例如 100" />
+            </el-form-item>
+            <el-form-item label="付款备注或流水号">
+              <el-input
+                v-model="rechargeForm.payerRemark"
+                type="textarea"
+                :rows="4"
+                maxlength="200"
+                show-word-limit
+                placeholder="可填写付款昵称、转账流水号或备注信息"
+              />
+            </el-form-item>
+            <el-form-item label="付款截图">
+              <input class="recharge-file-input" type="file" accept="image/*" @change="handleFileChange" />
+              <small v-if="screenshotFile">已选择：{{ screenshotFile.name }}</small>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="rechargeVisible = false">取消</el-button>
+        <el-button type="primary" :loading="rechargeSubmitting" @click="submitRecharge">提交申请</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -191,7 +351,8 @@ onMounted(loadOrders)
 
 .member-summary,
 .member-orders-grid,
-.member-tips {
+.member-tips,
+.recharge-list {
   display: grid;
   gap: 16px;
 }
@@ -201,7 +362,8 @@ onMounted(loadOrders)
 }
 
 .member-summary__item,
-.member-order-card {
+.member-order-card,
+.recharge-card {
   padding: 20px;
   border-radius: 24px;
   background: rgba(255, 255, 255, 0.08);
@@ -224,14 +386,14 @@ onMounted(loadOrders)
   font-size: 24px;
 }
 
+.member-summary__item.is-balance {
+  background: rgba(235, 246, 255, 0.18);
+}
+
 .member-summary__identity {
   display: grid;
   gap: 6px;
   margin-top: 8px;
-}
-
-.member-summary__identity strong {
-  margin-top: 0;
 }
 
 .member-summary__identity small {
@@ -245,7 +407,10 @@ onMounted(loadOrders)
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 
-.member-order-card__top {
+.member-order-card__top,
+.member-order-card__keys-head,
+.card-key-item,
+.recharge-card__top {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -253,24 +418,29 @@ onMounted(loadOrders)
 }
 
 .member-order-card__top strong,
-.member-order-card__top span {
+.member-order-card__top span,
+.recharge-card__top strong,
+.recharge-card__top span {
   display: block;
 }
 
-.member-order-card__top span {
+.member-order-card__top span,
+.recharge-card__top span {
   margin-top: 8px;
   color: var(--text-soft);
   font-size: 12px;
 }
 
-.member-order-card__meta {
+.member-order-card__meta,
+.recharge-card__meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
 
-.member-order-card__meta div {
+.member-order-card__meta div,
+.recharge-card__meta div {
   padding: 12px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.08);
@@ -278,34 +448,22 @@ onMounted(loadOrders)
 }
 
 .member-order-card__meta span,
-.member-order-card__meta strong {
+.member-order-card__meta strong,
+.recharge-card__meta span,
+.recharge-card__meta strong {
   display: block;
 }
 
-.member-order-card__meta span {
+.member-order-card__meta span,
+.recharge-card__meta span {
   color: var(--text-soft);
   font-size: 12px;
-}
-
-.member-order-card__meta strong {
-  margin-top: 6px;
 }
 
 .member-order-card__keys {
   margin-top: 18px;
   padding-top: 18px;
   border-top: 1px solid rgba(255, 255, 255, 0.18);
-}
-
-.member-order-card__keys-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-}
-
-.member-order-card__copy {
-  padding: 0 12px;
 }
 
 .card-key-list {
@@ -315,10 +473,6 @@ onMounted(loadOrders)
 }
 
 .card-key-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
   padding: 14px 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.12);
@@ -344,7 +498,8 @@ onMounted(loadOrders)
   color: #8b4f5e;
 }
 
-.card-key-empty {
+.card-key-empty,
+.recharge-card__reject {
   margin-top: 14px;
   padding: 14px 16px;
   border-radius: 18px;
@@ -353,8 +508,14 @@ onMounted(loadOrders)
   color: var(--text-secondary);
 }
 
+.recharge-load-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
 .member-tips {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .member-tip-card p {
@@ -363,15 +524,58 @@ onMounted(loadOrders)
   line-height: 1.8;
 }
 
+.recharge-dialog {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.recharge-dialog__qr,
+.recharge-dialog__form {
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(244, 249, 255, 0.82);
+  border: 1px solid rgba(214, 228, 243, 0.92);
+}
+
+.recharge-dialog__qr-card {
+  margin-top: 14px;
+  padding: 18px;
+  border-radius: 20px;
+  background: #fff;
+}
+
+.recharge-dialog__qr-card img {
+  display: block;
+  width: 100%;
+  border-radius: 16px;
+  object-fit: contain;
+}
+
+.recharge-dialog__qr p {
+  margin: 14px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.recharge-file-input {
+  width: 100%;
+}
+
 @media (max-width: 920px) {
   .member-order-card__meta,
-  .member-tips {
+  .recharge-card__meta,
+  .member-tips,
+  .recharge-dialog {
     grid-template-columns: 1fr;
   }
+}
 
+@media (max-width: 768px) {
   .member-order-card__top,
   .member-order-card__keys-head,
-  .card-key-item {
+  .card-key-item,
+  .recharge-card__top {
     flex-direction: column;
     align-items: flex-start;
   }

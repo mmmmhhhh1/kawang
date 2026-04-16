@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.CursorPageResponse;
@@ -22,6 +23,7 @@ import org.example.kah.mapper.ShopOrderMapper;
 import org.example.kah.service.AdminMemberService;
 import org.example.kah.service.MemberActivityCacheService;
 import org.example.kah.service.impl.base.AbstractCrudService;
+import org.example.kah.support.AsyncTaskSupport;
 import org.example.kah.util.CryptoService;
 import org.example.kah.util.CursorCodecUtils;
 import org.springframework.stereotype.Service;
@@ -30,11 +32,17 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long> implements AdminMemberService {
 
+    private static final String MEMBER_LABEL = "\u4f1a\u5458";
+    private static final String MEMBER_NOT_FOUND = "\u4f1a\u5458\u4e0d\u5b58\u5728";
+    private static final String INVALID_STATUS = "\u4f1a\u5458\u72b6\u6001\u975e\u6cd5";
+    private static final int ORDER_DETAIL_PARALLEL_THRESHOLD = 8;
+
     private final MemberUserMapper memberUserMapper;
     private final ShopOrderMapper shopOrderMapper;
     private final ShopOrderAccountMapper shopOrderAccountMapper;
     private final CryptoService cryptoService;
     private final MemberActivityCacheService memberActivityCacheService;
+    private final AsyncTaskSupport asyncTaskSupport;
 
     @Override
     public List<AdminMemberListView> list() {
@@ -64,8 +72,16 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
 
     @Override
     public AdminMemberDetailView detail(Long id) {
-        MemberUser memberUser = requireById(id);
-        List<AdminMemberOrderView> orders = shopOrderMapper.findByUserId(id).stream().map(this::toOrderView).toList();
+        CompletableFuture<MemberUser> memberFuture = asyncTaskSupport.supplyAsync(() -> memberUserMapper.findById(id));
+        CompletableFuture<List<ShopOrder>> orderFuture = asyncTaskSupport.supplyAsync(() -> shopOrderMapper.findByUserId(id));
+
+        MemberUser memberUser = asyncTaskSupport.join(memberFuture);
+        if (memberUser == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, MEMBER_NOT_FOUND);
+        }
+
+        List<ShopOrder> orders = asyncTaskSupport.join(orderFuture);
+        List<AdminMemberOrderView> orderViews = toOrderViews(orders);
         return new AdminMemberDetailView(
                 memberUser.getId(),
                 memberUser.getUsername(),
@@ -73,7 +89,7 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
                 memberUser.getStatus(),
                 memberUser.getCreatedAt(),
                 memberUser.getUpdatedAt(),
-                orders);
+                orderViews);
     }
 
     @Override
@@ -102,7 +118,7 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
 
     @Override
     protected String entityLabel() {
-        return "会员";
+        return MEMBER_LABEL;
     }
 
     private AdminMemberListView toListView(MemberUser memberUser) {
@@ -112,6 +128,19 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
                 memberUser.getMail(),
                 memberUser.getStatus(),
                 memberUser.getCreatedAt());
+    }
+
+    private List<AdminMemberOrderView> toOrderViews(List<ShopOrder> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        if (orders.size() == 1 || orders.size() > ORDER_DETAIL_PARALLEL_THRESHOLD) {
+            return orders.stream().map(this::toOrderView).toList();
+        }
+        List<CompletableFuture<AdminMemberOrderView>> futures = orders.stream()
+                .map(order -> asyncTaskSupport.supplyAsync(() -> toOrderView(order)))
+                .toList();
+        return futures.stream().map(asyncTaskSupport::join).toList();
     }
 
     private AdminMemberOrderView toOrderView(ShopOrder order) {
@@ -144,7 +173,7 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
 
     private void ensureStatus(String status) {
         if (!MemberStatus.ACTIVE.equals(status) && !MemberStatus.DISABLED.equals(status)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "会员状态非法");
+            throw new BusinessException(ErrorCode.BAD_REQUEST, INVALID_STATUS);
         }
     }
 }

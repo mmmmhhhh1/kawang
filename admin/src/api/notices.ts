@@ -1,4 +1,4 @@
-import { adminHttp, type ApiResponse } from './http'
+import { adminHttp, type ApiResponse, type CursorPageResponse } from './http'
 
 export type NoticeRecord = {
   id: number
@@ -19,8 +19,27 @@ export type NoticePayload = {
   sortOrder: number
 }
 
+export type NoticeCursorQuery = {
+  size: number
+  cursor?: string | null
+  keyword?: string
+  status?: 'PUBLISHED' | 'HIDDEN' | ''
+}
+
 export async function getNotices() {
   const response = await adminHttp.get<ApiResponse<NoticeRecord[]>>('/notices')
+  return response.data.data
+}
+
+export async function getNoticePage(params: NoticeCursorQuery) {
+  const response = await adminHttp.get<ApiResponse<CursorPageResponse<NoticeRecord>>>('/notices/page', {
+    params: {
+      size: params.size,
+      cursor: params.cursor || undefined,
+      keyword: params.keyword || undefined,
+      status: params.status || undefined,
+    },
+  })
   return response.data.data
 }
 

@@ -21,7 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class ProductLockExecutorServiceImpl implements ProductLockExecutorService {
 
     private static final Logger log = LoggerFactory.getLogger(ProductLockExecutorServiceImpl.class);
-    private static final String BUSY_MESSAGE = "\u5546\u54c1\u64cd\u4f5c\u7e41\u5fd9\uff0c\u8bf7\u7a0d\u540e\u518d\u8bd5";
+    private static final String BUSY_MESSAGE = "商品操作繁忙，请稍后再试";
 
     private final DistributedLockService distributedLockService;
     private final TransactionTemplate transactionTemplate;
@@ -46,10 +46,7 @@ public class ProductLockExecutorServiceImpl implements ProductLockExecutorServic
             } catch (BusinessException exception) {
                 throw exception;
             } catch (Exception exception) {
-                log.warn(
-                        "\u83b7\u53d6\u5546\u54c1\u5206\u5e03\u5f0f\u9501\u5931\u8d25\uff0c\u964d\u7ea7\u4e3a\u4ec5\u4f9d\u8d56\u672c\u673a\u9501\u548c\u6570\u636e\u5e93\u4e8b\u52a1\uff0cproductId={}",
-                        productId,
-                        exception);
+                log.warn("获取商品分布式锁失败，降级为仅依赖本机锁和数据库事务，productId={}", productId, exception);
             }
 
             T result = transactionTemplate.execute(status -> transactionalAction.get());
@@ -85,7 +82,7 @@ public class ProductLockExecutorServiceImpl implements ProductLockExecutorServic
             return localLock;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("\u7b49\u5f85\u5546\u54c1\u672c\u673a\u9501\u65f6\u88ab\u4e2d\u65ad", exception);
+            throw new IllegalStateException("等待商品本机锁时被中断", exception);
         }
     }
 

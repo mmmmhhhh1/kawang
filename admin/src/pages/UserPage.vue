@@ -1,23 +1,26 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminProfileState, hasAdminPermission } from '@/api/auth'
 import {
   getUserActivities,
   getUserActivity,
   getUserDetail,
-  getUsers,
+  getUserPage,
   updateUserStatus,
   type MemberActivity,
   type MemberDetail,
   type MemberListItem,
+  type MemberStatus,
 } from '@/api/users'
+import { useCursorPager } from '@/utils/cursorPager'
 
 type MemberListRow = MemberListItem & {
   lastSeenAt: string | null
   lastLoginAt: string | null
 }
 
+const PAGE_SIZE = 10
 const POLL_INTERVAL = 30_000
 
 const loading = ref(false)
@@ -26,7 +29,13 @@ const detailVisible = ref(false)
 const members = ref<MemberListRow[]>([])
 const detail = ref<MemberDetail | null>(null)
 const detailActivity = ref<MemberActivity | null>(null)
+const pager = useCursorPager()
 let pollTimer: number | null = null
+
+const filters = reactive({
+  keyword: '',
+  status: '' as '' | MemberStatus,
+})
 
 const canToggleUser = computed(() => hasAdminPermission('DISABLE_USER', adminProfileState.value))
 
@@ -34,12 +43,18 @@ function displayText(value?: string | null) {
   return value?.trim() ? value : '-'
 }
 
-function statusLabel(status: MemberListRow['status']) {
+function statusLabel(status: MemberStatus) {
   return status === 'ACTIVE' ? '正常' : '已停用'
 }
 
 function timeText(value?: string | null) {
   return value || '-'
+}
+
+function memberOrderStatusLabel(status: string) {
+  if (status === 'SUCCESS') return '已成功'
+  if (status === 'CLOSED') return '已关闭'
+  return status
 }
 
 function mergeActivities(activities: MemberActivity[]) {
@@ -90,19 +105,44 @@ async function refreshDetailActivity(silent = false) {
   }
 }
 
-async function loadMembers() {
+async function loadMembers(page = 1) {
   loading.value = true
   try {
-    const data = await getUsers()
-    members.value = data.map((item) => ({
+    const result = await getUserPage({
+      size: PAGE_SIZE,
+      cursor: pager.getCursor(page),
+      keyword: filters.keyword || undefined,
+      status: filters.status || undefined,
+    })
+    members.value = result.items.map((item) => ({
       ...item,
       lastSeenAt: null,
       lastLoginAt: null,
     }))
+    pager.commit(page, result.nextCursor, result.hasMore)
     await refreshMemberActivities(true)
   } finally {
     loading.value = false
   }
+}
+
+function resetAndLoad() {
+  pager.reset()
+  void loadMembers(1)
+}
+
+function goPrevPage() {
+  if (!pager.canPrev.value) {
+    return
+  }
+  void loadMembers(pager.currentPage.value - 1)
+}
+
+function goNextPage() {
+  if (!pager.canNext.value) {
+    return
+  }
+  void loadMembers(pager.currentPage.value + 1)
 }
 
 async function openDetail(id: number) {
@@ -118,6 +158,12 @@ async function openDetail(id: number) {
   } finally {
     detailLoading.value = false
   }
+}
+
+function resetFilters() {
+  filters.keyword = ''
+  filters.status = ''
+  resetAndLoad()
 }
 
 function stopPolling() {
@@ -142,7 +188,7 @@ async function toggleStatus(row: MemberListRow) {
     return
   }
 
-  const nextStatus = row.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
+  const nextStatus: MemberStatus = row.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'
   const actionLabel = nextStatus === 'ACTIVE' ? '启用' : '停用'
   try {
     await ElMessageBox.confirm(`确定${actionLabel}会员“${displayText(row.username)}”吗？`, `${actionLabel}会员`, {
@@ -157,7 +203,7 @@ async function toggleStatus(row: MemberListRow) {
       detail.value = detailData
       detailActivity.value = activityData
     }
-    await loadMembers()
+    resetAndLoad()
   } catch (error: any) {
     if (error === 'cancel' || error === 'close') {
       return
@@ -174,7 +220,8 @@ watch(detailVisible, (visible) => {
 })
 
 onMounted(async () => {
-  await loadMembers()
+  pager.reset()
+  await loadMembers(1)
   startPolling()
 })
 
@@ -188,9 +235,19 @@ onBeforeUnmount(() => {
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>查看会员基础资料，并仅在本页面轮询上次活跃时间和最近登录时间。</p>
+          <p>会员列表现在固定每页 10 条，页内继续轮询最近活跃和最近登录时间，翻页底层保持高性能游标分页。</p>
           <h1>会员管理</h1>
         </div>
+      </div>
+
+      <div class="toolbar">
+        <el-input v-model="filters.keyword" clearable placeholder="搜索用户名或邮箱" @keyup.enter="resetAndLoad" />
+        <el-select v-model="filters.status" clearable placeholder="按状态筛选">
+          <el-option label="正常" value="ACTIVE" />
+          <el-option label="已停用" value="DISABLED" />
+        </el-select>
+        <el-button type="primary" @click="resetAndLoad">查询</el-button>
+        <el-button @click="resetFilters">重置</el-button>
       </div>
 
       <el-table :data="members" v-loading="loading" border>
@@ -228,6 +285,14 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
       </el-table>
+
+      <div class="pager-bar">
+        <span class="pager-bar__summary">第 {{ pager.currentPage }} 页，每页 {{ PAGE_SIZE }} 条</span>
+        <div class="pager-bar__actions">
+          <el-button :disabled="!pager.canPrev || loading" @click="goPrevPage">上一页</el-button>
+          <el-button type="primary" :disabled="!pager.canNext || loading" @click="goNextPage">下一页</el-button>
+        </div>
+      </div>
     </el-card>
 
     <el-drawer v-model="detailVisible" size="min(860px, 94vw)" title="会员详情">
@@ -258,12 +323,12 @@ onBeforeUnmount(() => {
                     <strong>{{ order.productTitle }}</strong>
                     <span>{{ order.orderNo }}</span>
                   </div>
-                  <el-tag :type="order.status === 'SUCCESS' ? 'success' : 'info'">{{ order.status }}</el-tag>
+                  <el-tag :type="order.status === 'SUCCESS' ? 'success' : 'info'">{{ memberOrderStatusLabel(order.status) }}</el-tag>
                 </div>
 
                 <div class="member-order-card__meta">
                   <span>数量：{{ order.quantity }}</span>
-                  <span>金额：￥{{ Number(order.totalAmount).toFixed(2) }}</span>
+                  <span>金额：¥{{ Number(order.totalAmount).toFixed(2) }}</span>
                   <span>联系方式：{{ order.buyerContact }}</span>
                   <span>下单时间：{{ order.createdAt }}</span>
                 </div>
@@ -285,6 +350,24 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.pager-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.pager-bar__summary {
+  color: #5f7285;
+  font-size: 13px;
+}
+
+.pager-bar__actions {
+  display: flex;
+  gap: 12px;
+}
+
 .member-orders-section {
   margin-top: 24px;
 }
@@ -348,6 +431,19 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .pager-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pager-bar__actions {
+    width: 100%;
+  }
+
+  .pager-bar__actions :deep(.el-button) {
+    flex: 1;
+  }
+
   .member-order-card__head,
   .member-orders-section__head {
     flex-direction: column;

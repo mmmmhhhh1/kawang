@@ -1,4 +1,4 @@
-import { adminHttp, type ApiResponse } from './http'
+import { adminHttp, type ApiResponse, type CursorPageResponse } from './http'
 
 export type MemberStatus = 'ACTIVE' | 'DISABLED'
 
@@ -39,8 +39,27 @@ export type MemberActivity = {
   lastLoginAt: string | null
 }
 
+export type MemberCursorQuery = {
+  size: number
+  cursor?: string | null
+  keyword?: string
+  status?: MemberStatus | ''
+}
+
 export async function getUsers() {
   const response = await adminHttp.get<ApiResponse<MemberListItem[]>>('/users')
+  return response.data.data
+}
+
+export async function getUserPage(params: MemberCursorQuery) {
+  const response = await adminHttp.get<ApiResponse<CursorPageResponse<MemberListItem>>>('/users/page', {
+    params: {
+      size: params.size,
+      cursor: params.cursor || undefined,
+      keyword: params.keyword || undefined,
+      status: params.status || undefined,
+    },
+  })
   return response.data.data
 }
 

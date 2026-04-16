@@ -1,4 +1,4 @@
-import { adminHttp, type ApiResponse } from './http'
+import { adminHttp, type ApiResponse, type CursorPageResponse } from './http'
 import type { AdminPermission } from './auth'
 
 export type AdminUserItem = {
@@ -27,8 +27,25 @@ export type CreateAdminPayload = {
   permissions: AdminPermission[]
 }
 
+export type AdminCursorQuery = {
+  size: number
+  cursor?: string | null
+  keyword?: string
+}
+
 export async function getAdmins() {
   const response = await adminHttp.get<ApiResponse<AdminUserItem[]>>('/admins')
+  return response.data.data
+}
+
+export async function getAdminPage(params: AdminCursorQuery) {
+  const response = await adminHttp.get<ApiResponse<CursorPageResponse<AdminUserItem>>>('/admins/page', {
+    params: {
+      size: params.size,
+      cursor: params.cursor || undefined,
+      keyword: params.keyword || undefined,
+    },
+  })
   return response.data.data
 }
 

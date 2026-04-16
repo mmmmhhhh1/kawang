@@ -6,46 +6,47 @@ import { Search, SwitchButton } from '@element-plus/icons-vue'
 import { fetchMemberProfile, logoutMember, memberProfileState } from '@/api/auth'
 import { getStoredToken } from '@/api/http'
 
+type FloatingPetal = {
+  id: number
+  left: string
+  top: string
+  width: string
+  height: string
+  opacity: string
+  duration: string
+  delay: string
+  drift: string
+}
+
+type CursorPetal = {
+  id: number
+  left: string
+  top: string
+  width: string
+  height: string
+  driftX: string
+  driftY: string
+  scale: string
+  rotate: string
+  opacity: string
+}
+
 const route = useRoute()
 const router = useRouter()
+const profile = memberProfileState
+const searchKeyword = ref('')
+const floatingPetals = ref<FloatingPetal[]>([])
+const cursorPetals = ref<CursorPetal[]>([])
 
 const navItems = [
-  { to: '/', label: '购物' },
+  { to: '/', label: '商城首页' },
   { to: '/query', label: '订单查询' },
 ]
 
-const petals = Array.from({ length: 26 }, (_, index) => {
-  const sizes = ['10px', '12px', '14px', '16px', '18px', '20px']
-  const drifts = ['42px', '56px', '68px', '84px', '96px']
-  const durations = ['16s', '18s', '21s', '24s', '27s']
-  return {
-    left: `${(index * 9 + 3) % 98}%`,
-    top: `${(index * 11 + 4) % 36}%`,
-    size: sizes[index % sizes.length],
-    delay: `${(index % 7) * 1.2}s`,
-    duration: durations[index % durations.length],
-    drift: drifts[index % drifts.length],
-    opacity: (0.36 + (index % 5) * 0.1).toFixed(2),
-  }
-})
-
-const profile = memberProfileState
-const searchKeyword = ref('')
-const cursorPetals = ref<
-  Array<{
-    id: number
-    left: string
-    top: string
-    size: string
-    delay: string
-    duration: string
-    opacity: string
-    driftX: string
-    driftY: string
-    rotate: string
-    scale: string
-  }>
->([])
+let nextCursorPetalId = 1
+let lastPointerX = -1
+let lastPointerY = -1
+let lastPointerAt = 0
 
 function normalizeProfileText(value?: string | null) {
   const text = value?.trim()
@@ -56,33 +57,25 @@ const profileUsername = computed(() => normalizeProfileText(profile.value?.usern
 const profileEmail = computed(() => normalizeProfileText(profile.value?.email))
 const profilePrimary = computed(() => profileUsername.value ?? profileEmail.value ?? '会员')
 const profileSecondary = computed(() => {
-  if (profileUsername.value && profileEmail.value) {
+  if (profile.value?.balance != null) {
+    return `余额 ¥${Number(profile.value.balance).toFixed(2)}`
+  }
+  if (profileEmail.value && profileEmail.value !== profilePrimary.value) {
     return profileEmail.value
   }
-  if (profileEmail.value) {
-    return null
-  }
-  return profileUsername.value ? '我的订单' : null
+  return '我的订单'
 })
-const profileInitial = computed(() =>
-  (profileUsername.value ?? profileEmail.value ?? 'K').slice(0, 1).toUpperCase(),
-)
-const pointerTimers = new Map<number, number>()
+const profileInitial = computed(() => (profileUsername.value ?? profileEmail.value ?? 'K').slice(0, 1).toUpperCase())
 
-let nextCursorPetalId = 0
-let lastTrailAt = 0
-let lastPointerX = -1000
-let lastPointerY = -1000
+function syncSearchKeyword() {
+  searchKeyword.value = typeof route.query.q === 'string' ? route.query.q : ''
+}
 
 function isActive(path: string) {
   if (path === '/') {
     return route.path === '/'
   }
   return route.path.startsWith(path)
-}
-
-function syncSearchKeyword() {
-  searchKeyword.value = typeof route.query.q === 'string' ? route.query.q : ''
 }
 
 async function syncProfile() {
@@ -106,9 +99,7 @@ function submitSearch() {
 
 function clearSearch() {
   searchKeyword.value = ''
-  if (route.path === '/' && route.query.q) {
-    router.replace({ path: '/', query: {} })
-  }
+  router.replace({ path: '/', query: {} })
 }
 
 function handleLogout() {
@@ -117,105 +108,96 @@ function handleLogout() {
   router.push('/')
 }
 
-function removeCursorPetal(id: number) {
-  cursorPetals.value = cursorPetals.value.filter((petal) => petal.id !== id)
-  const timer = pointerTimers.get(id)
-  if (timer) {
-    window.clearTimeout(timer)
-    pointerTimers.delete(id)
+function buildFloatingPetals() {
+  const petals: FloatingPetal[] = []
+  for (let index = 0; index < 18; index++) {
+    petals.push({
+      id: index + 1,
+      left: `${Math.round((index * 5.4 + Math.random() * 7) % 100)}%`,
+      top: `${Math.round(-18 - Math.random() * 80)}vh`,
+      width: `${12 + Math.round(Math.random() * 12)}px`,
+      height: `${18 + Math.round(Math.random() * 14)}px`,
+      opacity: (0.28 + Math.random() * 0.44).toFixed(2),
+      duration: `${16 + Math.round(Math.random() * 15)}s`,
+      delay: `${(-1 * Math.random() * 24).toFixed(2)}s`,
+      drift: `${Math.round(-60 + Math.random() * 120)}px`,
+    })
   }
+  floatingPetals.value = petals
 }
 
-function spawnCursorTrail(clientX: number, clientY: number) {
-  const batch = Array.from({ length: 4 }, (_, index) => {
-    const id = nextCursorPetalId++
-    const size = 6.2 + Math.random() * 4.4
-    const lifetime = 1.12 + Math.random() * 0.34
-
-    return {
-      id,
-      left: `${clientX + (Math.random() - 0.5) * 14}px`,
-      top: `${clientY + (Math.random() - 0.5) * 10}px`,
-      size: `${size.toFixed(1)}px`,
-      delay: `${index * 0.03}s`,
-      duration: `${lifetime.toFixed(2)}s`,
-      opacity: (0.5 + Math.random() * 0.26).toFixed(2),
-      driftX: `${(-14 + Math.random() * 28).toFixed(1)}px`,
-      driftY: `${(12 + Math.random() * 18).toFixed(1)}px`,
-      rotate: `${(-46 + Math.random() * 92).toFixed(0)}deg`,
-      scale: (0.9 + Math.random() * 0.28).toFixed(2),
-    }
-  })
-
-  cursorPetals.value = [...cursorPetals.value, ...batch].slice(-56)
-
-  batch.forEach((petal) => {
-    const timer = window.setTimeout(() => removeCursorPetal(petal.id), 1850)
-    pointerTimers.set(petal.id, timer)
-  })
+function spawnCursorPetals(clientX: number, clientY: number) {
+  const petals: CursorPetal[] = []
+  const count = 2 + Math.floor(Math.random() * 2)
+  for (let index = 0; index < count; index++) {
+    petals.push({
+      id: nextCursorPetalId++,
+      left: `${clientX}px`,
+      top: `${clientY}px`,
+      width: `${8 + Math.round(Math.random() * 6)}px`,
+      height: `${12 + Math.round(Math.random() * 8)}px`,
+      driftX: `${Math.round(-30 + Math.random() * 60)}px`,
+      driftY: `${Math.round(-8 + Math.random() * 46)}px`,
+      scale: (0.66 + Math.random() * 0.54).toFixed(2),
+      rotate: `${Math.round(-80 + Math.random() * 180)}deg`,
+      opacity: (0.42 + Math.random() * 0.36).toFixed(2),
+    })
+  }
+  cursorPetals.value = [...cursorPetals.value, ...petals]
+  window.setTimeout(() => {
+    const expired = new Set(petals.map((item) => item.id))
+    cursorPetals.value = cursorPetals.value.filter((item) => !expired.has(item.id))
+  }, 1450)
 }
 
-function handlePointerMove(event: PointerEvent) {
-  if (event.pointerType === 'touch') {
+function handlePointerMove(event: MouseEvent) {
+  const now = Date.now()
+  const distanceX = Math.abs(event.clientX - lastPointerX)
+  const distanceY = Math.abs(event.clientY - lastPointerY)
+  if (now - lastPointerAt < 44 && distanceX < 14 && distanceY < 14) {
     return
   }
-
-  const now = performance.now()
-  const movedEnough =
-    Math.abs(event.clientX - lastPointerX) + Math.abs(event.clientY - lastPointerY) > 16
-
-  if (!movedEnough || now - lastTrailAt < 48) {
-    return
-  }
-
-  lastTrailAt = now
+  lastPointerAt = now
   lastPointerX = event.clientX
   lastPointerY = event.clientY
-  spawnCursorTrail(event.clientX, event.clientY)
+  spawnCursorPetals(event.clientX, event.clientY)
 }
 
-watch(
-  () => route.fullPath,
-  () => {
-    syncSearchKeyword()
-  },
-  { immediate: true },
-)
-
 onMounted(() => {
-  syncProfile()
-  window.addEventListener('pointermove', handlePointerMove, { passive: true })
+  syncSearchKeyword()
+  buildFloatingPetals()
+  void syncProfile()
+  window.addEventListener('mousemove', handlePointerMove, { passive: true })
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('pointermove', handlePointerMove)
-  pointerTimers.forEach((timer) => window.clearTimeout(timer))
-  pointerTimers.clear()
+  window.removeEventListener('mousemove', handlePointerMove)
 })
+
+watch(() => route.fullPath, syncSearchKeyword)
 </script>
 
 <template>
   <div class="store-app-shell">
-    <div class="store-rain-layer rain-layer-one"></div>
-    <div class="store-rain-layer rain-layer-two"></div>
-    <div class="store-petal-layer">
+    <div class="store-petal-layer" aria-hidden="true">
       <span
-        v-for="(petal, index) in petals"
-        :key="index"
+        v-for="petal in floatingPetals"
+        :key="petal.id"
         class="store-petal"
         :style="{
           left: petal.left,
           top: petal.top,
-          width: petal.size,
-          height: petal.size,
-          animationDelay: petal.delay,
-          animationDuration: petal.duration,
-          '--petal-drift': petal.drift,
+          width: petal.width,
+          height: petal.height,
           opacity: petal.opacity,
+          animationDuration: petal.duration,
+          animationDelay: petal.delay,
+          '--petal-drift': petal.drift,
         }"
-      ></span>
+      />
     </div>
-    <div class="store-cursor-petal-layer">
+
+    <div class="store-cursor-petal-layer" aria-hidden="true">
       <span
         v-for="petal in cursorPetals"
         :key="petal.id"
@@ -223,17 +205,15 @@ onBeforeUnmount(() => {
         :style="{
           left: petal.left,
           top: petal.top,
-          width: petal.size,
-          height: petal.size,
-          animationDelay: petal.delay,
-          animationDuration: petal.duration,
+          width: petal.width,
+          height: petal.height,
           opacity: petal.opacity,
           '--cursor-petal-drift-x': petal.driftX,
           '--cursor-petal-drift-y': petal.driftY,
-          '--cursor-petal-rotate': petal.rotate,
           '--cursor-petal-scale': petal.scale,
+          '--cursor-petal-rotate': petal.rotate,
         }"
-      ></span>
+      />
     </div>
 
     <header class="store-topbar">
@@ -267,7 +247,6 @@ onBeforeUnmount(() => {
             @keyup.enter="submitSearch"
             @clear="clearSearch"
           />
-          <button class="topbar-search__submit" type="button" @click="submitSearch">搜索</button>
         </div>
 
         <template v-if="profile">
@@ -275,7 +254,7 @@ onBeforeUnmount(() => {
             <span class="profile-chip__avatar">{{ profileInitial }}</span>
             <span class="profile-chip__meta">
               <strong>{{ profilePrimary }}</strong>
-              <em v-if="profileSecondary">{{ profileSecondary }}</em>
+              <em>{{ profileSecondary }}</em>
             </span>
           </button>
           <button class="topbar-icon-button" type="button" @click="handleLogout">

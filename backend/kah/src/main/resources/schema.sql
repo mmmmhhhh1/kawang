@@ -281,6 +281,22 @@ PREPARE stmt_add_product_account_card_key_digest FROM @product_account_card_key_
 EXECUTE stmt_add_product_account_card_key_digest;
 DEALLOCATE PREPARE stmt_add_product_account_card_key_digest;
 
+SET @product_account_has_allocation_handle = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_account'
+      AND COLUMN_NAME = 'allocation_handle'
+);
+SET @product_account_allocation_handle_sql = IF(
+    @product_account_has_allocation_handle = 0,
+    'ALTER TABLE product_account ADD COLUMN allocation_handle VARCHAR(64) NULL AFTER card_key_digest',
+    'SELECT 1'
+);
+PREPARE stmt_add_product_account_allocation_handle FROM @product_account_allocation_handle_sql;
+EXECUTE stmt_add_product_account_allocation_handle;
+DEALLOCATE PREPARE stmt_add_product_account_allocation_handle;
+
 SET @product_account_has_sale_status = (
     SELECT COUNT(*)
     FROM information_schema.COLUMNS
@@ -328,6 +344,22 @@ SET @product_account_used_status_sql = IF(
 PREPARE stmt_add_product_account_used_status FROM @product_account_used_status_sql;
 EXECUTE stmt_add_product_account_used_status;
 DEALLOCATE PREPARE stmt_add_product_account_used_status;
+
+SET @product_account_has_allocation_handle_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'product_account'
+      AND INDEX_NAME = 'uk_product_account_allocation_handle'
+);
+SET @product_account_allocation_handle_index_sql = IF(
+    @product_account_has_allocation_handle_index = 0,
+    'ALTER TABLE product_account ADD UNIQUE KEY uk_product_account_allocation_handle (allocation_handle)',
+    'SELECT 1'
+);
+PREPARE stmt_add_product_account_allocation_handle_index FROM @product_account_allocation_handle_index_sql;
+EXECUTE stmt_add_product_account_allocation_handle_index;
+DEALLOCATE PREPARE stmt_add_product_account_allocation_handle_index;
 
 SET @product_account_has_card_key_digest_index = (
     SELECT COUNT(*)
@@ -716,3 +748,4 @@ SET @member_recharge_created_id_index_sql = IF(
 PREPARE stmt_add_member_recharge_created_id_index FROM @member_recharge_created_id_index_sql;
 EXECUTE stmt_add_member_recharge_created_id_index;
 DEALLOCATE PREPARE stmt_add_member_recharge_created_id_index;
+
