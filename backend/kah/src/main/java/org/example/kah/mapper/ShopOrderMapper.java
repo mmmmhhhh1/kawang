@@ -1,5 +1,6 @@
 package org.example.kah.mapper;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.ibatis.annotations.Mapper;
@@ -22,6 +23,10 @@ public interface ShopOrderMapper {
     List<ShopOrder> findByContact(Map<String, Object> params);
 
     List<ShopOrder> findByUserId(@Param("userId") Long userId);
+
+    List<ShopOrder> findMemberCursorPage(Map<String, Object> params);
+
+    HashMap<String, Object> summarizeByUserId(@Param("userId") Long userId);
 
     long countByProductId(@Param("productId") Long productId);
 

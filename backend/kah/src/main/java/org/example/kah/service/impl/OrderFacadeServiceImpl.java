@@ -1,7 +1,9 @@
 package org.example.kah.service.impl;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,9 +11,12 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.annotation.TrackMemberSeen;
 import org.example.kah.common.BusinessException;
+import org.example.kah.common.CursorPageResponse;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.dto.publicapi.CardKeyView;
 import org.example.kah.dto.publicapi.CreateOrderRequest;
+import org.example.kah.dto.publicapi.MemberOrderPageView;
+import org.example.kah.dto.publicapi.MemberOrderSummaryView;
 import org.example.kah.dto.publicapi.OrderCreatedResponse;
 import org.example.kah.dto.publicapi.OrderQueryView;
 import org.example.kah.dto.publicapi.QueryOrdersRequest;
@@ -28,6 +33,7 @@ import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
 import org.example.kah.mapper.ShopOrderAccountMapper;
 import org.example.kah.mapper.ShopOrderMapper;
+import org.example.kah.metrics.ShopMetricsService;
 import org.example.kah.reservation.OrderReservation;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.MemberBalanceService;
@@ -36,6 +42,7 @@ import org.example.kah.service.OrderReservationService;
 import org.example.kah.service.ProductCacheRefreshService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.example.kah.util.CryptoService;
+import org.example.kah.util.CursorCodecUtils;
 import org.example.kah.util.MaskingUtils;
 import org.example.kah.util.OrderNumberGenerator;
 import org.springframework.stereotype.Service;
@@ -46,7 +53,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class OrderFacadeServiceImpl extends AbstractServiceSupport implements OrderFacadeService {
 
     private static final String LOGIN_REQUIRED = "请先登录后再购买";
-    private static final String LOOKUP_REQUIRED = "请输入联系方式和查单密码，或使用旧订单号兼容查询";
+    private static final String LOOKUP_REQUIRED = "请输入联系方式和查单密码";
     private static final String PRODUCT_NOT_FOUND = "商品不存在或已下架";
     private static final String INVALID_QUANTITY = "购买数量至少为 1";
     private static final String BALANCE_ORDER_REMARK = "余额购买卡密";
@@ -63,6 +70,7 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     private final ProductCacheRefreshService productCacheRefreshService;
     private final MemberBalanceService memberBalanceService;
     private final OrderReservationService orderReservationService;
+    private final ShopMetricsService shopMetricsService;
 
     @Override
     @TrackMemberSeen
@@ -79,12 +87,15 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
         }
 
         OrderReservation reservation = orderReservationService.reserve(request.productId(), currentUser.userId(), quantity);
+        long startedAt = System.nanoTime();
         try {
             OrderCreatedResponse response = transactionTemplate.execute(status -> doCreate(request, currentUser, reservation));
+            shopMetricsService.recordOrderTransactionSuccess(Duration.ofNanos(System.nanoTime() - startedAt));
             orderReservationService.confirm(reservation);
             productCacheRefreshService.refreshStatsAfterWrite(request.productId());
             return response;
         } catch (RuntimeException | Error exception) {
+            shopMetricsService.recordOrderTransactionFailure(Duration.ofNanos(System.nanoTime() - startedAt));
             orderReservationService.rollback(reservation);
             throw exception;
         }
@@ -94,25 +105,50 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
     public List<OrderQueryView> queryByContact(QueryOrdersRequest request) {
         String buyerContact = trim(request.buyerContact());
         String lookupSecret = trim(request.lookupSecret());
-        String orderNo = trim(request.orderNo());
-        require(
-                (lookupSecret != null && !lookupSecret.isBlank()) || (orderNo != null && !orderNo.isBlank()),
-                LOOKUP_REQUIRED);
+        require(lookupSecret != null && !lookupSecret.isBlank(), LOOKUP_REQUIRED);
 
         Map<String, Object> params = new HashMap<>();
         params.put("buyerContact", buyerContact);
-        if (lookupSecret != null && !lookupSecret.isBlank()) {
-            params.put("lookupHash", buildLookupHash(buyerContact, lookupSecret));
-        } else {
-            params.put("orderNo", orderNo);
-        }
-        return shopOrderMapper.findByContact(params).stream().map(this::toView).toList();
+        params.put("lookupHash", buildLookupHash(buyerContact, lookupSecret));
+        return toViews(shopOrderMapper.findByContact(params));
     }
 
     @Override
     @TrackMemberSeen
-    public List<OrderQueryView> listByUser(Long userId) {
-        return shopOrderMapper.findByUserId(userId).stream().map(this::toView).toList();
+    public MemberOrderPageView listByUser(Long userId, int size, String cursor) {
+        int safeSize = normalizeSize(size, 20);
+        CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
+        Map<String, Object> params = new HashMap<>();
+        params.put("userId", userId);
+        params.put("limit", safeSize + 1);
+        if (decodedCursor != null) {
+            params.put("cursorCreatedAt", decodedCursor.createdAt());
+            params.put("cursorId", decodedCursor.id());
+        }
+
+        List<ShopOrder> rows = shopOrderMapper.findMemberCursorPage(params);
+        boolean hasMore = rows.size() > safeSize;
+        List<ShopOrder> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
+        String nextCursor = hasMore
+                ? CursorCodecUtils.encode(
+                        pageItems.get(pageItems.size() - 1).getCreatedAt(),
+                        pageItems.get(pageItems.size() - 1).getId())
+                : null;
+
+        Map<String, Object> summaryRow = shopOrderMapper.summarizeByUserId(userId);
+        long orderCount = toLong(summaryRow.get("orderCount"));
+        long totalQuantity = toLong(summaryRow.get("totalQuantity"));
+        BigDecimal totalAmount = toBigDecimal(summaryRow.get("totalAmount"));
+        MemberOrderSummaryView summary = new MemberOrderSummaryView(
+                orderCount,
+                totalQuantity,
+                totalAmount,
+                totalQuantity);
+        CursorPageResponse<OrderQueryView> page = new CursorPageResponse<>(
+                toViews(pageItems),
+                nextCursor,
+                hasMore);
+        return new MemberOrderPageView(summary, page);
     }
 
     private OrderCreatedResponse doCreate(CreateOrderRequest request, AuthenticatedUser currentUser, OrderReservation reservation) {
@@ -154,7 +190,7 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, ORDER_ASSIGN_FAILED);
         }
 
-        List<ProductAccount> cardKeys = loadAssignedCardKeys(product.getId(), handles, order.getId());
+        List<ResolvedCardKey> cardKeys = loadResolvedAssignedCardKeys(product.getId(), handles, order.getId());
         List<ShopOrderAccount> snapshots = cardKeys.stream().map(cardKey -> toSnapshot(order.getId(), cardKey)).toList();
         if (!snapshots.isEmpty()) {
             shopOrderAccountMapper.batchInsert(snapshots);
@@ -171,30 +207,34 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 memberUser.getBalance());
     }
 
-    private List<ProductAccount> loadAssignedCardKeys(Long productId, List<String> handles, Long orderId) {
+    private List<ResolvedCardKey> loadResolvedAssignedCardKeys(Long productId, List<String> handles, Long orderId) {
         Map<String, ProductAccount> accountMap = productAccountMapper.findByAllocationHandles(productId, handles).stream()
                 .collect(LinkedHashMap::new, (map, account) -> map.put(account.getAllocationHandle(), account), Map::putAll);
-        List<ProductAccount> orderedAccounts = new java.util.ArrayList<>();
+        List<ResolvedCardKey> orderedAccounts = new ArrayList<>();
         for (String handle : handles) {
             ProductAccount account = accountMap.get(handle);
             if (account == null || account.getAssignedOrderId() == null || !orderId.equals(account.getAssignedOrderId())) {
                 throw new BusinessException(ErrorCode.INTERNAL_ERROR, ORDER_ASSIGN_FAILED);
             }
-            orderedAccounts.add(account);
+            orderedAccounts.add(new ResolvedCardKey(account, cryptoService.decrypt(account.getCardKeyCiphertext())));
         }
         return orderedAccounts;
     }
 
-    private ShopOrderAccount toSnapshot(Long orderId, ProductAccount cardKey) {
+    private ShopOrderAccount toSnapshot(Long orderId, ResolvedCardKey cardKey) {
         ShopOrderAccount snapshot = new ShopOrderAccount();
         snapshot.setOrderId(orderId);
-        snapshot.setAccountId(cardKey.getId());
-        snapshot.setMaskedAccountSnapshot(MaskingUtils.maskAccount(decryptCardKey(cardKey)));
-        snapshot.setCardKeyCiphertextSnapshot(cardKey.getCardKeyCiphertext());
+        snapshot.setAccountId(cardKey.account().getId());
+        snapshot.setMaskedAccountSnapshot(MaskingUtils.maskAccount(cardKey.cardKey()));
+        snapshot.setCardKeyCiphertextSnapshot(cardKey.account().getCardKeyCiphertext());
         return snapshot;
     }
 
     private OrderQueryView toView(ShopOrder order) {
+        return toView(order, loadCardKeys(order.getId()));
+    }
+
+    private OrderQueryView toView(ShopOrder order, List<CardKeyView> cardKeys) {
         return new OrderQueryView(
                 order.getId(),
                 order.getOrderNo(),
@@ -203,7 +243,18 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 order.getTotalAmount(),
                 order.getStatus(),
                 order.getCreatedAt(),
-                loadCardKeys(order.getId()));
+                cardKeys);
+    }
+
+    private List<OrderQueryView> toViews(List<ShopOrder> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        List<Long> orderIds = orders.stream().map(ShopOrder::getId).toList();
+        Map<Long, List<CardKeyView>> cardKeyMap = loadCardKeysByOrderIds(orderIds);
+        return orders.stream()
+                .map(order -> toView(order, cardKeyMap.getOrDefault(order.getId(), List.of())))
+                .toList();
     }
 
     private List<CardKeyView> loadCardKeys(Long orderId) {
@@ -217,17 +268,55 @@ public class OrderFacadeServiceImpl extends AbstractServiceSupport implements Or
                 .toList();
     }
 
-    private List<CardKeyView> toCardKeyViews(List<ProductAccount> cardKeys) {
-        return cardKeys.stream()
-                .map(item -> new CardKeyView(decryptCardKey(item), item.getEnableStatus()))
-                .toList();
+    private Map<Long, List<CardKeyView>> loadCardKeysByOrderIds(List<Long> orderIds) {
+        Map<Long, List<CardKeyView>> grouped = new LinkedHashMap<>();
+        if (orderIds.isEmpty()) {
+            return grouped;
+        }
+        for (Long orderId : orderIds) {
+            grouped.put(orderId, new ArrayList<>());
+        }
+        for (ShopOrderAccount item : shopOrderAccountMapper.findByOrderIds(orderIds)) {
+            if (item.getCardKeyCiphertextSnapshot() == null || item.getCardKeyCiphertextSnapshot().isBlank()) {
+                continue;
+            }
+            grouped.computeIfAbsent(item.getOrderId(), ignored -> new ArrayList<>())
+                    .add(new CardKeyView(
+                            cryptoService.decrypt(item.getCardKeyCiphertextSnapshot()),
+                            item.getEnableStatus() == null || item.getEnableStatus().isBlank()
+                                    ? EnableStatus.DISABLED
+                                    : item.getEnableStatus()));
+        }
+        return grouped;
     }
 
-    private String decryptCardKey(ProductAccount account) {
-        return cryptoService.decrypt(account.getCardKeyCiphertext());
+    private List<CardKeyView> toCardKeyViews(List<ResolvedCardKey> cardKeys) {
+        return cardKeys.stream()
+                .map(item -> new CardKeyView(item.cardKey(), item.account().getEnableStatus()))
+                .toList();
     }
 
     private String buildLookupHash(String buyerContact, String lookupSecret) {
         return cryptoService.digest(buyerContact + ":" + trim(lookupSecret));
+    }
+
+    private long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return 0L;
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private record ResolvedCardKey(ProductAccount account, String cardKey) {
     }
 }

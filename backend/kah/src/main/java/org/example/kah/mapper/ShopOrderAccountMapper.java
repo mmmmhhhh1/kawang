@@ -39,6 +39,21 @@ public interface ShopOrderAccountMapper {
             """)
     List<ShopOrderAccount> findByOrderId(@Param("orderId") Long orderId);
 
+    @Select({
+            "<script>",
+            "SELECT soa.id, soa.order_id, soa.account_id, soa.masked_account_snapshot, soa.card_key_ciphertext_snapshot,",
+            "       pa.enable_status, pa.used_status, soa.created_at",
+            "FROM shop_order_account soa",
+            "LEFT JOIN product_account pa ON pa.id = soa.account_id",
+            "WHERE soa.order_id IN",
+            "<foreach collection='orderIds' item='orderId' open='(' separator=',' close=')'>",
+            "#{orderId}",
+            "</foreach>",
+            "ORDER BY soa.order_id ASC, soa.id ASC",
+            "</script>"
+    })
+    List<ShopOrderAccount> findByOrderIds(@Param("orderIds") List<Long> orderIds);
+
     @Delete("""
             DELETE FROM shop_order_account
             WHERE order_id = #{orderId}

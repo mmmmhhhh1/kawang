@@ -1,45 +1,39 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getStoredToken } from '@/api/http'
-import StoreLayout from '@/layouts/StoreLayout.vue'
-import HomePage from '@/pages/HomePage.vue'
-import OrderQueryPage from '@/pages/OrderQueryPage.vue'
-import LoginPage from '@/pages/LoginPage.vue'
-import RegisterPage from '@/pages/RegisterPage.vue'
-import MyOrdersPage from '@/pages/MyOrdersPage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
-      component: StoreLayout,
+      component: () => import('@/layouts/StoreLayout.vue'),
       children: [
         {
           path: '',
           name: 'home',
-          component: HomePage,
+          component: () => import('@/pages/HomePage.vue'),
         },
         {
           path: 'query',
           name: 'query',
-          component: OrderQueryPage,
+          component: () => import('@/pages/OrderQueryPage.vue'),
         },
         {
           path: 'login',
           name: 'login',
-          component: LoginPage,
+          component: () => import('@/pages/LoginPage.vue'),
           meta: { guestOnly: true },
         },
         {
           path: 'register',
           name: 'register',
-          component: RegisterPage,
+          component: () => import('@/pages/RegisterPage.vue'),
           meta: { guestOnly: true },
         },
         {
           path: 'orders/me',
           name: 'my-orders',
-          component: MyOrdersPage,
+          component: () => import('@/pages/MyOrdersPage.vue'),
           meta: { requiresAuth: true },
         },
       ],

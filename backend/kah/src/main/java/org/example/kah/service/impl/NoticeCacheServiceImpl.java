@@ -7,6 +7,7 @@ import org.example.kah.cache.NoticeCacheCodec;
 import org.example.kah.cache.NoticeCacheConstants;
 import org.example.kah.dto.publicapi.NoticeView;
 import org.example.kah.mapper.NoticeMapper;
+import org.example.kah.metrics.ShopMetricsService;
 import org.example.kah.service.NoticeCacheService;
 import org.example.kah.util.CacheTtlUtils;
 import org.slf4j.Logger;
@@ -23,18 +24,23 @@ public class NoticeCacheServiceImpl implements NoticeCacheService {
     private final StringRedisTemplate stringRedisTemplate;
     private final NoticeCacheCodec noticeCacheCodec;
     private final NoticeMapper noticeMapper;
+    private final ShopMetricsService shopMetricsService;
 
     @Override
     public List<NoticeView> getPublishedNotices() {
         try {
             String cached = stringRedisTemplate.opsForValue().get(NoticeCacheConstants.PUBLISHED_NOTICE_LIST_KEY);
             if (cached != null) {
+                shopMetricsService.recordNoticeCacheHit();
                 return noticeCacheCodec.parsePublishedList(cached);
             }
+            shopMetricsService.recordNoticeCacheMiss();
             List<NoticeView> notices = loadPublishedNoticesFromDb();
             writePublishedCache(notices);
+            shopMetricsService.recordNoticeCacheRebuild();
             return notices;
         } catch (Exception exception) {
+            shopMetricsService.recordNoticeCacheFallback();
             log.warn("读取前台公告缓存失败，回退数据库查询", exception);
             return loadPublishedNoticesFromDb();
         }

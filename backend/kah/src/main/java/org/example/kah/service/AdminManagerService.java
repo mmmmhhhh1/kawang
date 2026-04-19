@@ -8,8 +8,6 @@ import org.example.kah.dto.admin.AdminUserItemView;
 
 public interface AdminManagerService {
 
-    List<AdminUserItemView> list();
-
     CursorPageResponse<AdminUserItemView> page(int size, String cursor, String keyword);
 
     AdminUserDetailView create(AdminUserCreateRequest request);

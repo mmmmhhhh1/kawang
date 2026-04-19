@@ -47,11 +47,6 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
     private final OrderReservationService orderReservationService;
 
     @Override
-    public List<AdminAccountView> list(Long productId, String saleStatus, String enableStatus) {
-        return queryViews(productId, saleStatus, enableStatus);
-    }
-
-    @Override
     public CursorPageResponse<AdminAccountView> page(
             int size,
             String cursor,
@@ -77,7 +72,9 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         boolean hasMore = rows.size() > safeSize;
         List<ProductAccount> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
         String nextCursor = hasMore
-                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
+                ? CursorCodecUtils.encode(
+                        pageItems.get(pageItems.size() - 1).getCreatedAt(),
+                        pageItems.get(pageItems.size() - 1).getId())
                 : null;
         return new CursorPageResponse<>(pageItems.stream().map(this::toView).toList(), nextCursor, hasMore);
     }
@@ -167,17 +164,6 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
         return "卡密";
     }
 
-    private List<AdminAccountView> queryViews(Long productId, String saleStatus, String enableStatus) {
-        List<ProductAccount> cardKeys = productId == null
-                ? productAccountMapper.findAllCardKeys()
-                : productAccountMapper.findCardKeysByProductId(productId);
-        return cardKeys.stream()
-                .filter(item -> saleStatus == null || saleStatus.isBlank() || saleStatus.equals(item.getSaleStatus()))
-                .filter(item -> enableStatus == null || enableStatus.isBlank() || enableStatus.equals(item.getEnableStatus()))
-                .map(this::toView)
-                .toList();
-    }
-
     private CreateBatchResult doCreate(AdminAccountCreateRequest request) {
         ShopProduct product = productMapper.findById(request.productId());
         if (product == null) {
@@ -241,7 +227,7 @@ public class AdminAccountServiceImpl extends AbstractCrudService<ProductAccount,
 
         ProductAccount account = requireCardKey(id);
         if (!SaleStatus.SOLD.equals(account.getSaleStatus())) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "未售出卡密不能修改使用状态");
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "未售出的卡密不能修改使用状态");
         }
         if (!safeUsedStatus.equals(account.getUsedStatus())) {
             productAccountMapper.updateUsedStatus(id, safeUsedStatus);

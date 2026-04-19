@@ -1,16 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getStoredProfile, hasAdminPermission, type AdminPermission } from '@/api/auth'
 import { getStoredToken } from '@/api/http'
-import LoginPage from '@/pages/LoginPage.vue'
-import AdminLayout from '@/pages/AdminLayout.vue'
-import ProductPage from '@/pages/ProductPage.vue'
-import AccountPage from '@/pages/AccountPage.vue'
-import OrderPage from '@/pages/OrderPage.vue'
-import NoticePage from '@/pages/NoticePage.vue'
-import UserPage from '@/pages/UserPage.vue'
-import AdminUserPage from '@/pages/AdminUserPage.vue'
-import RechargePage from '@/pages/RechargePage.vue'
-import PaymentQrPage from '@/pages/PaymentQrPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -18,33 +8,34 @@ const router = createRouter({
     {
       path: '/login',
       name: 'login',
-      component: LoginPage,
+      component: () => import('@/pages/LoginPage.vue'),
       meta: { public: true },
     },
     {
       path: '/',
-      component: AdminLayout,
+      component: () => import('@/pages/AdminLayout.vue'),
       meta: { requiresAuth: true },
       redirect: '/products',
       children: [
-        { path: 'products', name: 'products', component: ProductPage, meta: { requiresAuth: true } },
-        { path: 'accounts', name: 'accounts', component: AccountPage, meta: { requiresAuth: true } },
-        { path: 'orders', name: 'orders', component: OrderPage, meta: { requiresAuth: true } },
-        { path: 'users', name: 'users', component: UserPage, meta: { requiresAuth: true } },
-        { path: 'recharges', name: 'recharges', component: RechargePage, meta: { requiresAuth: true } },
+        { path: 'products', name: 'products', component: () => import('@/pages/ProductPage.vue'), meta: { requiresAuth: true } },
+        { path: 'accounts', name: 'accounts', component: () => import('@/pages/AccountPage.vue'), meta: { requiresAuth: true } },
+        { path: 'orders', name: 'orders', component: () => import('@/pages/OrderPage.vue'), meta: { requiresAuth: true } },
+        { path: 'users', name: 'users', component: () => import('@/pages/UserPage.vue'), meta: { requiresAuth: true } },
+        { path: 'recharges', name: 'recharges', component: () => import('@/pages/RechargePage.vue'), meta: { requiresAuth: true } },
         {
           path: 'admins',
           name: 'admins',
-          component: AdminUserPage,
+          component: () => import('@/pages/AdminUserPage.vue'),
           meta: { requiresAuth: true, requiredPermission: 'CREATE_ADMIN' },
         },
         {
           path: 'payment-qr',
           name: 'payment-qr',
-          component: PaymentQrPage,
+          component: () => import('@/pages/PaymentQrPage.vue'),
           meta: { requiresAuth: true, superAdminOnly: true },
         },
-        { path: 'notices', name: 'notices', component: NoticePage, meta: { requiresAuth: true } },
+        { path: 'notices', name: 'notices', component: () => import('@/pages/NoticePage.vue'), meta: { requiresAuth: true } },
+        { path: 'runtime', name: 'runtime', component: () => import('@/pages/RuntimePage.vue'), meta: { requiresAuth: true } },
       ],
     },
   ],

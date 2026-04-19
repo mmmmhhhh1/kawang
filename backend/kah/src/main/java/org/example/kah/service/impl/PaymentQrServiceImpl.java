@@ -28,11 +28,6 @@ public class PaymentQrServiceImpl extends AbstractServiceSupport implements Paym
     private final FileStorageService fileStorageService;
 
     @Override
-    public List<AdminPaymentQrItemView> list() {
-        return paymentQrConfigMapper.findAll().stream().map(this::toView).toList();
-    }
-
-    @Override
     public CursorPageResponse<AdminPaymentQrItemView> page(int size, String cursor) {
         int safeSize = normalizeSize(size, 50);
         CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
@@ -46,7 +41,9 @@ public class PaymentQrServiceImpl extends AbstractServiceSupport implements Paym
         boolean hasMore = rows.size() > safeSize;
         List<PaymentQrConfig> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
         String nextCursor = hasMore
-                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
+                ? CursorCodecUtils.encode(
+                        pageItems.get(pageItems.size() - 1).getCreatedAt(),
+                        pageItems.get(pageItems.size() - 1).getId())
                 : null;
         return new CursorPageResponse<>(pageItems.stream().map(this::toView).toList(), nextCursor, hasMore);
     }

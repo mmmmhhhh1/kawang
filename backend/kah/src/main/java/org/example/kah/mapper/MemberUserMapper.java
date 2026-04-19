@@ -21,8 +21,6 @@ public interface MemberUserMapper {
 
     MemberUser findByEmail(@Param("email") String email);
 
-    List<MemberUser> findAll();
-
     List<MemberUser> findAdminCursorPage(Map<String, Object> params);
 
     int insert(MemberUser memberUser);

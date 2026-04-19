@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Lock, Message, UserFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Lock, Message, Star } from '@element-plus/icons-vue'
 import { registerMember, registerMemberByEmail, sendEmailCode } from '@/api/auth'
 
 type RegisterMode = 'password' | 'email'
@@ -12,7 +12,7 @@ const router = useRouter()
 const loading = ref(false)
 const sendingCode = ref(false)
 const codeCountdown = ref(0)
-const mode = ref<RegisterMode>('password')
+const mode = ref<RegisterMode>('email')
 
 const passwordForm = reactive({
   username: '',
@@ -36,12 +36,12 @@ let timerId: number | null = null
 const passwordHint = computed(() => {
   const currentPassword = mode.value === 'password' ? passwordForm.password : emailForm.password
   if (!currentPassword) {
-    return '密码长度需在 6 到 64 位之间'
+    return '密码长度需要在 6 到 64 位之间'
   }
   if (currentPassword.length < 6) {
-    return '当前密码长度不足 6 位'
+    return '当前密码长度还不足 6 位'
   }
-  return '密码长度符合要求'
+  return '密码长度已经符合要求'
 })
 
 function stopCountdown() {
@@ -70,7 +70,7 @@ function redirectAfterRegister() {
 
 function validateUsername(username: string) {
   if (!usernamePattern.test(username.trim())) {
-    ElMessage.warning('用户名需为 4-32 位字母、数字或下划线')
+    ElMessage.warning('用户名需为 4 到 32 位字母、数字或下划线')
     return false
   }
   return true
@@ -82,7 +82,7 @@ function validatePassword(password: string, confirmPassword: string) {
     return false
   }
   if (password.length < 6 || password.length > 64) {
-    ElMessage.warning('密码长度需在 6 到 64 位之间')
+    ElMessage.warning('密码长度需要在 6 到 64 位之间')
     return false
   }
   if (password !== confirmPassword) {
@@ -181,36 +181,51 @@ onBeforeUnmount(stopCountdown)
 
 <template>
   <div class="shell-body">
-    <section class="auth-grid">
-      <article class="glass-card auth-intro-card">
-        <span class="auth-card-title">注册</span>
-        <h1>创建会员账号</h1>
-        <p>注册完成后会自动登录，后续每次下单都可以自动绑定到当前账号。</p>
-        <ul class="auth-feature-list">
-          <li>
-            <el-icon><UserFilled /></el-icon>
-            保留原有用户名密码注册
-          </li>
-          <li>
-            <el-icon><Message /></el-icon>
-            支持邮箱验证码注册
-          </li>
-          <li>
-            <el-icon><Lock /></el-icon>
-            注册成功后可直接查看我的订单
-          </li>
-        </ul>
+    <section class="auth-scene page-reveal" :style="{ '--delay': '0.04s' }">
+      <article class="glass-card auth-scene__story">
+        <span class="section-kicker">创建会员</span>
+        <h1>把你的购买记录、充值进度和卡密发放都收进同一个账号。</h1>
+        <p>
+          这次注册页围绕当前会员体系重新整理。默认优先推荐邮箱验证码注册，
+          同时继续保留账号密码方式，方便你按熟悉的方式进入。
+        </p>
+
+        <div class="auth-story__list">
+          <div class="auth-story__item">
+            <span class="section-chip">
+              <el-icon><Message /></el-icon>
+              邮箱快速验证
+            </span>
+            <p>更适合当前前台主流程，注册完成后会自动进入会员中心。</p>
+          </div>
+          <div class="auth-story__item">
+            <span class="section-chip">
+              <el-icon><Lock /></el-icon>
+              下单自动归档
+            </span>
+            <p>后续每一笔购买都会自动绑定到当前账号，不再需要再走旧式查询方式。</p>
+          </div>
+          <div class="auth-story__item">
+            <span class="section-chip">
+              <el-icon><Star /></el-icon>
+              统一会员体验
+            </span>
+            <p>注册后你可以直接查看余额、订单、卡密与充值审核进度。</p>
+          </div>
+        </div>
       </article>
 
-      <article class="auth-form-card">
-        <div class="auth-form-card__head auth-form-card__head--center">
-          <span class="auth-card-title">创建账号</span>
-          <h2>{{ mode === 'password' ? '普通注册' : '邮箱验证注册' }}</h2>
+      <article class="auth-panel">
+        <div class="auth-panel__head">
+          <span class="soft-chip">
+            <el-icon><ChatDotRound /></el-icon>
+            创建账号
+          </span>
+          <h2>{{ mode === 'email' ? '邮箱验证注册' : '账号密码注册' }}</h2>
           <p>
-            {{
-              mode === 'password'
-                ? '使用用户名和密码快速创建会员账号。'
-                : '先完成邮箱验证码校验，再创建用户名和密码。'
+            {{ mode === 'email'
+              ? '推荐先完成邮箱验证，再创建用户名与密码，后续登录也会更方便。'
+              : '如果你更喜欢传统方式，也可以直接使用用户名与密码创建账号。'
             }}
           </p>
         </div>
@@ -218,46 +233,34 @@ onBeforeUnmount(stopCountdown)
         <div class="auth-mode-switch" role="tablist" aria-label="注册方式切换">
           <button
             class="auth-mode-switch__item"
-            :class="{ 'is-active': mode === 'password' }"
-            type="button"
-            @click="mode = 'password'"
-          >
-            普通注册
-          </button>
-          <button
-            class="auth-mode-switch__item"
             :class="{ 'is-active': mode === 'email' }"
             type="button"
             @click="mode = 'email'"
           >
-            邮箱验证注册
+            邮箱验证
+          </button>
+          <button
+            class="auth-mode-switch__item"
+            :class="{ 'is-active': mode === 'password' }"
+            type="button"
+            @click="mode = 'password'"
+          >
+            账号密码
           </button>
         </div>
 
-        <el-form v-if="mode === 'password'" label-position="top">
-          <el-form-item label="用户名">
-            <el-input v-model="passwordForm.username" maxlength="32" placeholder="例如 kawang_user" />
-          </el-form-item>
-          <el-form-item label="密码">
-            <el-input v-model="passwordForm.password" type="password" show-password placeholder="至少 6 位" />
-          </el-form-item>
-          <el-form-item label="确认密码">
-            <el-input
-              v-model="passwordForm.confirmPassword"
-              type="password"
-              show-password
-              placeholder="再次输入密码"
-            />
-          </el-form-item>
-        </el-form>
-
-        <el-form v-else label-position="top">
-          <el-form-item label="邮箱">
-            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入邮箱地址" />
+        <el-form v-if="mode === 'email'" label-position="top">
+          <el-form-item label="邮箱地址">
+            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入常用邮箱地址" />
           </el-form-item>
           <el-form-item label="邮箱验证码">
             <div class="auth-code-row">
-              <el-input class="auth-code-input" v-model="emailForm.code" maxlength="6" placeholder="请输入 6 位验证码" />
+              <el-input
+                class="auth-code-input"
+                v-model="emailForm.code"
+                maxlength="6"
+                placeholder="请输入 6 位验证码"
+              />
               <el-button class="auth-code-button" :disabled="sendingCode || codeCountdown > 0" @click="handleSendCode">
                 {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s 后重试` : '发送验证码' }}
               </el-button>
@@ -279,15 +282,32 @@ onBeforeUnmount(stopCountdown)
           </el-form-item>
         </el-form>
 
+        <el-form v-else label-position="top">
+          <el-form-item label="用户名">
+            <el-input v-model="passwordForm.username" maxlength="32" placeholder="例如 kawang_user" />
+          </el-form-item>
+          <el-form-item label="密码">
+            <el-input v-model="passwordForm.password" type="password" show-password placeholder="至少 6 位" />
+          </el-form-item>
+          <el-form-item label="确认密码">
+            <el-input
+              v-model="passwordForm.confirmPassword"
+              type="password"
+              show-password
+              placeholder="再次输入密码"
+            />
+          </el-form-item>
+        </el-form>
+
         <el-alert :closable="false" type="info" show-icon :title="passwordHint" />
 
-        <button class="primary-action auth-submit" type="button" :disabled="loading" @click="submit">
-          {{ loading ? '注册中...' : '注册并登录' }}
+        <button class="primary-action auth-panel__submit" type="button" :disabled="loading" @click="submit">
+          {{ loading ? '注册中...' : '注册并进入会员中心' }}
         </button>
 
-        <div class="auth-foot-links">
+        <div class="auth-panel__foot">
           <span>已经有账号？</span>
-          <router-link to="/login">去登录</router-link>
+          <router-link to="/login">前往登录</router-link>
         </div>
       </article>
     </section>
@@ -295,87 +315,75 @@ onBeforeUnmount(stopCountdown)
 </template>
 
 <style scoped>
-.auth-grid {
+.auth-scene {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 430px);
   gap: 22px;
 }
 
-.auth-intro-card {
-  text-align: center;
+.auth-scene__story {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  min-height: 100%;
 }
 
-.auth-card-title {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: fit-content;
-  min-height: 32px;
-  margin: 0 auto 14px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  backdrop-filter: blur(18px);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-decoration: none;
-}
-
-.auth-intro-card h1 {
-  margin: 0 0 12px;
-  font-size: clamp(30px, 4vw, 42px);
-}
-
-.auth-intro-card p {
+.auth-scene__story h1 {
   margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.8;
+  max-width: 620px;
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 1.06;
 }
 
-.auth-feature-list {
-  margin: 24px 0 0;
-  padding: 0;
-  list-style: none;
+.auth-scene__story p {
+  margin: 0;
+  max-width: 620px;
+  color: var(--text-secondary);
+  line-height: 1.9;
+}
+
+.auth-story__list {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-story__item {
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(255, 251, 253, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 14px 30px rgba(108, 85, 135, 0.1);
+}
+
+.auth-story__item p {
+  margin-top: 12px;
+}
+
+.auth-panel {
+  padding: 28px;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 213, 232, 0.26), transparent 30%),
+    linear-gradient(180deg, rgba(255, 251, 253, 0.94), rgba(248, 244, 255, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 26px 70px rgba(102, 79, 129, 0.16);
+}
+
+.auth-panel__head {
   display: grid;
   gap: 12px;
-  text-align: left;
+  margin-bottom: 22px;
 }
 
-.auth-feature-list li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+.auth-panel__head h2 {
+  margin: 0;
+  font-size: 32px;
 }
 
-.auth-form-card {
-  padding: 26px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(28px);
-}
-
-.auth-form-card__head--center {
-  text-align: center;
-}
-
-.auth-form-card__head h2 {
-  margin: 0 0 8px;
-  font-size: 30px;
-}
-
-.auth-form-card__head p {
-  margin: 0 0 22px;
+.auth-panel__head p {
+  margin: 0;
   color: var(--text-secondary);
-  line-height: 1.8;
+  line-height: 1.82;
 }
 
 .auth-mode-switch {
@@ -385,24 +393,25 @@ onBeforeUnmount(stopCountdown)
   margin-bottom: 18px;
   padding: 6px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(247, 238, 247, 0.88);
+  border: 1px solid rgba(238, 215, 228, 0.92);
 }
 
 .auth-mode-switch__item {
-  min-height: 42px;
+  min-height: 44px;
   border: none;
   border-radius: 14px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.22s ease, background-color 0.22s ease, box-shadow 0.22s ease;
 }
 
 .auth-mode-switch__item.is-active {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.9);
   color: var(--text-primary);
-  box-shadow: 0 12px 20px rgba(120, 138, 160, 0.16);
+  box-shadow: 0 12px 24px rgba(126, 102, 154, 0.14);
+  transform: translateY(-1px);
 }
 
 .auth-code-row {
@@ -417,15 +426,15 @@ onBeforeUnmount(stopCountdown)
 }
 
 .auth-code-button {
-  min-width: 132px;
+  min-width: 136px;
 }
 
-.auth-submit {
+.auth-panel__submit {
   width: 100%;
   margin-top: 18px;
 }
 
-.auth-foot-links {
+.auth-panel__foot {
   display: flex;
   gap: 8px;
   justify-content: center;
@@ -433,14 +442,14 @@ onBeforeUnmount(stopCountdown)
   color: var(--text-secondary);
 }
 
-.auth-foot-links a {
-  color: var(--accent);
+.auth-panel__foot a {
+  color: var(--accent-pink-strong);
   font-weight: 700;
   text-decoration: none;
 }
 
-@media (max-width: 920px) {
-  .auth-grid {
+@media (max-width: 960px) {
+  .auth-scene {
     grid-template-columns: 1fr;
   }
 }

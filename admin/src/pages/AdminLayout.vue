@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Bell, Box, Goods, List, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { Bell, Box, DataAnalysis, Goods, List, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElNotification } from 'element-plus'
 import {
   adminProfileState,
@@ -32,6 +32,7 @@ const menuItems: Array<{
   { index: '/admins', label: '管理员管理', icon: Setting, permission: 'CREATE_ADMIN' },
   { index: '/payment-qr', label: '收款码管理', icon: Setting, superAdminOnly: true },
   { index: '/notices', label: '公告管理', icon: Bell },
+  { index: '/runtime', label: '系统监控', icon: DataAnalysis },
 ]
 
 const RECHARGE_POLL_INTERVAL = 12_000

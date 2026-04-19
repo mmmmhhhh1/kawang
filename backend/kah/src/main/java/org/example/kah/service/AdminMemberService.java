@@ -8,8 +8,6 @@ import org.example.kah.dto.admin.AdminMemberListView;
 
 public interface AdminMemberService {
 
-    List<AdminMemberListView> list();
-
     CursorPageResponse<AdminMemberListView> page(int size, String cursor, String keyword, String status);
 
     AdminMemberDetailView detail(Long id);

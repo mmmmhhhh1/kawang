@@ -10,10 +10,6 @@ import org.example.kah.entity.ProductAccount;
 @Mapper
 public interface ProductAccountMapper {
 
-    List<ProductAccount> findAllCardKeys();
-
-    List<ProductAccount> findCardKeysByProductId(@Param("productId") Long productId);
-
     List<ProductAccount> findCursorPage(Map<String, Object> params);
 
     ProductAccount findDetailById(@Param("id") Long id);

@@ -10,11 +10,11 @@ import org.example.kah.dto.publicapi.CodeSend;
 import org.example.kah.dto.publicapi.MemberAuthResponse;
 import org.example.kah.dto.publicapi.MemberLoginMailRqs;
 import org.example.kah.dto.publicapi.MemberLoginRequest;
+import org.example.kah.dto.publicapi.MemberOrderPageView;
 import org.example.kah.dto.publicapi.MemberProfileView;
 import org.example.kah.dto.publicapi.MemberRechargeItemView;
 import org.example.kah.dto.publicapi.MemberRegisMailRsp;
 import org.example.kah.dto.publicapi.MemberRegisterRequest;
-import org.example.kah.dto.publicapi.OrderQueryView;
 import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.EmailService;
 import org.example.kah.service.MemberRechargeService;
@@ -75,9 +75,12 @@ public class PublicAuthController {
      * 获取当前登录会员订单。
      */
     @GetMapping("/orders")
-    public ApiResponse<List<OrderQueryView>> myOrders(Authentication authentication) {
+    public ApiResponse<MemberOrderPageView> myOrders(
+            Authentication authentication,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String cursor) {
         AuthenticatedUser currentUser = (AuthenticatedUser) authentication.getPrincipal();
-        return ApiResponse.success(orderFacadeService.listByUser(currentUser.userId()));
+        return ApiResponse.success(orderFacadeService.listByUser(currentUser.userId(), size, cursor));
     }
 
     /**

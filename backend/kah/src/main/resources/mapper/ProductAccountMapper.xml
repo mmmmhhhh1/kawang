@@ -15,25 +15,6 @@
         assigned_order_id, assigned_at, created_at, updated_at
     </sql>
 
-    <select id="findAllCardKeys" resultType="org.example.kah.entity.ProductAccount">
-        SELECT <include refid="joinedColumns" />
-        FROM product_account pa
-        LEFT JOIN shop_product p ON p.id = pa.product_id
-        LEFT JOIN shop_order o ON o.id = pa.assigned_order_id
-        WHERE pa.resource_type = 'CARD_KEY'
-        ORDER BY pa.created_at DESC, pa.id DESC
-    </select>
-
-    <select id="findCardKeysByProductId" resultType="org.example.kah.entity.ProductAccount">
-        SELECT <include refid="joinedColumns" />
-        FROM product_account pa
-        LEFT JOIN shop_product p ON p.id = pa.product_id
-        LEFT JOIN shop_order o ON o.id = pa.assigned_order_id
-        WHERE pa.resource_type = 'CARD_KEY'
-          AND pa.product_id = #{productId}
-        ORDER BY pa.created_at DESC, pa.id DESC
-    </select>
-
     <select id="findCursorPage" resultType="org.example.kah.entity.ProductAccount">
         SELECT <include refid="joinedColumns" />
         FROM product_account pa

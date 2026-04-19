@@ -10,8 +10,6 @@ public interface NoticeService {
 
     List<NoticeView> listPublished();
 
-    List<AdminNoticeView> listAdmin();
-
     CursorPageResponse<AdminNoticeView> pageAdmin(int size, String cursor, String keyword, String status);
 
     AdminNoticeView create(AdminNoticeSaveRequest request);

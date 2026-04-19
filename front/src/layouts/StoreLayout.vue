@@ -39,7 +39,7 @@ const floatingPetals = ref<FloatingPetal[]>([])
 const cursorPetals = ref<CursorPetal[]>([])
 
 const navItems = [
-  { to: '/', label: '商城首页' },
+  { to: '/', label: '首页' },
   { to: '/query', label: '订单查询' },
 ]
 
@@ -63,7 +63,7 @@ const profileSecondary = computed(() => {
   if (profileEmail.value && profileEmail.value !== profilePrimary.value) {
     return profileEmail.value
   }
-  return '我的订单'
+  return '进入会员中心'
 })
 const profileInitial = computed(() => (profileUsername.value ?? profileEmail.value ?? 'K').slice(0, 1).toUpperCase())
 
@@ -110,17 +110,17 @@ function handleLogout() {
 
 function buildFloatingPetals() {
   const petals: FloatingPetal[] = []
-  for (let index = 0; index < 18; index++) {
+  for (let index = 0; index < 16; index++) {
     petals.push({
       id: index + 1,
-      left: `${Math.round((index * 5.4 + Math.random() * 7) % 100)}%`,
-      top: `${Math.round(-18 - Math.random() * 80)}vh`,
-      width: `${12 + Math.round(Math.random() * 12)}px`,
-      height: `${18 + Math.round(Math.random() * 14)}px`,
-      opacity: (0.28 + Math.random() * 0.44).toFixed(2),
-      duration: `${16 + Math.round(Math.random() * 15)}s`,
-      delay: `${(-1 * Math.random() * 24).toFixed(2)}s`,
-      drift: `${Math.round(-60 + Math.random() * 120)}px`,
+      left: `${Math.round((index * 6.4 + Math.random() * 8) % 100)}%`,
+      top: `${Math.round(-16 - Math.random() * 66)}vh`,
+      width: `${14 + Math.round(Math.random() * 10)}px`,
+      height: `${18 + Math.round(Math.random() * 12)}px`,
+      opacity: (0.18 + Math.random() * 0.34).toFixed(2),
+      duration: `${18 + Math.round(Math.random() * 14)}s`,
+      delay: `${(-1 * Math.random() * 20).toFixed(2)}s`,
+      drift: `${Math.round(-72 + Math.random() * 144)}px`,
     })
   }
   floatingPetals.value = petals
@@ -135,26 +135,26 @@ function spawnCursorPetals(clientX: number, clientY: number) {
       left: `${clientX}px`,
       top: `${clientY}px`,
       width: `${8 + Math.round(Math.random() * 6)}px`,
-      height: `${12 + Math.round(Math.random() * 8)}px`,
-      driftX: `${Math.round(-30 + Math.random() * 60)}px`,
-      driftY: `${Math.round(-8 + Math.random() * 46)}px`,
-      scale: (0.66 + Math.random() * 0.54).toFixed(2),
-      rotate: `${Math.round(-80 + Math.random() * 180)}deg`,
-      opacity: (0.42 + Math.random() * 0.36).toFixed(2),
+      height: `${12 + Math.round(Math.random() * 6)}px`,
+      driftX: `${Math.round(-28 + Math.random() * 56)}px`,
+      driftY: `${Math.round(-10 + Math.random() * 42)}px`,
+      scale: (0.7 + Math.random() * 0.4).toFixed(2),
+      rotate: `${Math.round(-80 + Math.random() * 176)}deg`,
+      opacity: (0.38 + Math.random() * 0.26).toFixed(2),
     })
   }
   cursorPetals.value = [...cursorPetals.value, ...petals]
   window.setTimeout(() => {
     const expired = new Set(petals.map((item) => item.id))
     cursorPetals.value = cursorPetals.value.filter((item) => !expired.has(item.id))
-  }, 1450)
+  }, 1280)
 }
 
 function handlePointerMove(event: MouseEvent) {
   const now = Date.now()
   const distanceX = Math.abs(event.clientX - lastPointerX)
   const distanceY = Math.abs(event.clientY - lastPointerY)
-  if (now - lastPointerAt < 44 && distanceX < 14 && distanceY < 14) {
+  if (now - lastPointerAt < 54 && distanceX < 18 && distanceY < 18) {
     return
   }
   lastPointerAt = now
@@ -216,12 +216,12 @@ watch(() => route.fullPath, syncSearchKeyword)
       />
     </div>
 
-    <header class="store-topbar">
+    <header class="store-topbar page-reveal">
       <router-link class="brand-mark" to="/">
-        <span class="brand-mark__logo">K</span>
+        <span class="brand-mark__logo">花</span>
         <span class="brand-mark__meta">
           <strong>Kawang</strong>
-          <em>AI 会员商城</em>
+          <em>樱落会员商店</em>
         </span>
       </router-link>
 
@@ -243,7 +243,7 @@ watch(() => route.fullPath, syncSearchKeyword)
             v-model="searchKeyword"
             :prefix-icon="Search"
             clearable
-            placeholder="搜索商品关键词"
+            placeholder="搜索你想要的会员、平台或套餐"
             @keyup.enter="submitSearch"
             @clear="clearSearch"
           />
@@ -257,14 +257,14 @@ watch(() => route.fullPath, syncSearchKeyword)
               <em>{{ profileSecondary }}</em>
             </span>
           </button>
-          <button class="topbar-icon-button" type="button" @click="handleLogout">
+          <button class="topbar-icon-button" type="button" aria-label="退出登录" @click="handleLogout">
             <el-icon><SwitchButton /></el-icon>
           </button>
         </template>
 
         <template v-else>
           <router-link class="topbar-text-link" to="/login">登录</router-link>
-          <router-link class="topbar-primary-link" to="/register">注册</router-link>
+          <router-link class="topbar-primary-link" to="/register">立即加入</router-link>
         </template>
       </div>
     </header>

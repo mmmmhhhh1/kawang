@@ -36,11 +36,6 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
     }
 
     @Override
-    public List<AdminNoticeView> listAdmin() {
-        return noticeMapper.findAll().stream().map(this::toAdminView).toList();
-    }
-
-    @Override
     public CursorPageResponse<AdminNoticeView> pageAdmin(int size, String cursor, String keyword, String status) {
         int safeSize = normalizeSize(size, 50);
         CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
@@ -55,9 +50,7 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
         List<ShopNotice> rows = noticeMapper.findAdminCursorPage(params);
         boolean hasMore = rows.size() > safeSize;
         List<ShopNotice> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
-        String nextCursor = hasMore
-                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
-                : null;
+        String nextCursor = hasMore ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId()) : null;
         return new CursorPageResponse<>(pageItems.stream().map(this::toAdminView).toList(), nextCursor, hasMore);
     }
 
@@ -121,15 +114,7 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
     }
 
     private AdminNoticeView toAdminView(ShopNotice notice) {
-        return new AdminNoticeView(
-                notice.getId(),
-                notice.getTitle(),
-                notice.getSummary(),
-                notice.getContent(),
-                notice.getStatus(),
-                notice.getSortOrder(),
-                notice.getPublishedAt(),
-                notice.getUpdatedAt());
+        return new AdminNoticeView(notice.getId(), notice.getTitle(), notice.getSummary(), notice.getContent(), notice.getStatus(), notice.getSortOrder(), notice.getPublishedAt(), notice.getUpdatedAt());
     }
 
     private void refreshPublishedNoticeCacheAfterCommit() {

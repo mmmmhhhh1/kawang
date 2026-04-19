@@ -5,6 +5,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
 import org.example.kah.common.CursorPageResponse;
+import org.example.kah.dto.admin.AdminProductOptionView;
 import org.example.kah.dto.admin.AdminProductSaveRequest;
 import org.example.kah.dto.admin.AdminProductStatusRequest;
 import org.example.kah.dto.admin.AdminProductView;
@@ -32,11 +33,6 @@ public class AdminProductController {
     private final AdminProductService adminProductService;
     private final AdminPermissionService adminPermissionService;
 
-    @GetMapping
-    public ApiResponse<List<AdminProductView>> list() {
-        return ApiResponse.success(adminProductService.list());
-    }
-
     @GetMapping("/page")
     public ApiResponse<CursorPageResponse<AdminProductView>> page(
             @RequestParam(defaultValue = "20") int size,
@@ -44,6 +40,13 @@ public class AdminProductController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String status) {
         return ApiResponse.success(adminProductService.page(size, cursor, keyword, status));
+    }
+
+    @GetMapping("/options")
+    public ApiResponse<List<AdminProductOptionView>> options(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(adminProductService.searchOptions(keyword, size));
     }
 
     @PostMapping

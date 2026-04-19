@@ -71,18 +71,7 @@
         SELECT <include refid="orderColumns" />
         FROM shop_order
         WHERE buyer_contact = #{buyerContact}
-        <choose>
-            <when test="lookupHash != null and lookupHash != ''">
-                AND lookup_hash = #{lookupHash}
-            </when>
-            <when test="orderNo != null and orderNo != ''">
-                AND lookup_hash IS NULL
-                AND order_no = #{orderNo}
-            </when>
-            <otherwise>
-                AND 1 = 0
-            </otherwise>
-        </choose>
+        AND lookup_hash = #{lookupHash}
         ORDER BY created_at DESC, id DESC
     </select>
 
@@ -91,6 +80,29 @@
         FROM shop_order
         WHERE user_id = #{userId}
         ORDER BY created_at DESC, id DESC
+    </select>
+
+    <select id="findMemberCursorPage" resultType="org.example.kah.entity.ShopOrder">
+        SELECT <include refid="orderColumns" />
+        FROM shop_order
+        WHERE user_id = #{userId}
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (
+                created_at &lt; #{cursorCreatedAt}
+                OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
+            )
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="summarizeByUserId" resultType="hashmap">
+        SELECT
+            COUNT(*) AS orderCount,
+            COALESCE(SUM(quantity), 0) AS totalQuantity,
+            COALESCE(SUM(total_amount), 0) AS totalAmount
+        FROM shop_order
+        WHERE user_id = #{userId}
     </select>
 
     <select id="countByProductId" resultType="long">

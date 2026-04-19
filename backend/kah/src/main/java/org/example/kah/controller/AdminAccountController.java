@@ -41,14 +41,6 @@ public class AdminAccountController {
         return ApiResponse.success(adminAccountService.page(size, cursor, productId, saleStatus, enableStatus, usedStatus, keyword));
     }
 
-    @GetMapping("/all")
-    public ApiResponse<List<AdminAccountView>> list(
-            @RequestParam(required = false) Long productId,
-            @RequestParam(required = false) String saleStatus,
-            @RequestParam(required = false) String enableStatus) {
-        return ApiResponse.success(adminAccountService.list(productId, saleStatus, enableStatus));
-    }
-
     @GetMapping("/{id}")
     public ApiResponse<AdminAccountDetailView> detail(@PathVariable Long id) {
         return ApiResponse.success(adminAccountService.detail(id));

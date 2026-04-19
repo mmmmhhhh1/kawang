@@ -1,4 +1,5 @@
 import { http, type ApiResponse } from './http'
+import type { CursorPageResponse } from './auth'
 
 export type Product = {
   id: number
@@ -44,7 +45,6 @@ export type OrderResult = {
 export type QueryOrdersPayload = {
   buyerContact: string
   lookupSecret?: string
-  orderNo?: string
 }
 
 export type OrderRecord = {
@@ -56,6 +56,18 @@ export type OrderRecord = {
   status: 'SUCCESS' | 'CLOSED'
   createdAt: string
   cardKeys: CardKeyRecord[]
+}
+
+export type MemberOrderSummary = {
+  orderCount: number
+  totalQuantity: number
+  totalAmount: number
+  totalCardKeys: number
+}
+
+export type MemberOrderPage = {
+  summary: MemberOrderSummary
+  page: CursorPageResponse<OrderRecord>
 }
 
 export async function getProducts() {
@@ -83,7 +95,12 @@ export async function queryOrders(payload: QueryOrdersPayload) {
   return response.data.data
 }
 
-export async function getMyOrders() {
-  const response = await http.get<ApiResponse<OrderRecord[]>>('/auth/orders')
+export async function getMyOrders(size = 10, cursor?: string | null) {
+  const response = await http.get<ApiResponse<MemberOrderPage>>('/auth/orders', {
+    params: {
+      size,
+      cursor: cursor || undefined,
+    },
+  })
   return response.data.data
 }

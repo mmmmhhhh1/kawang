@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.CursorPageResponse;
 import org.example.kah.common.ErrorCode;
+import org.example.kah.dto.admin.AdminProductOptionView;
 import org.example.kah.dto.admin.AdminProductSaveRequest;
 import org.example.kah.dto.admin.AdminProductView;
 import org.example.kah.entity.ProductStatus;
@@ -27,6 +28,9 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Long> implements AdminProductService {
 
+    private static final int ADMIN_PAGE_LIMIT = 50;
+    private static final int OPTION_LIMIT = 50;
+
     private final ProductMapper productMapper;
     private final ProductAccountMapper productAccountMapper;
     private final ShopOrderMapper shopOrderMapper;
@@ -35,29 +39,15 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     private final OrderReservationService orderReservationService;
 
     @Override
-    public List<AdminProductView> list() {
-        return productMapper.findAllProducts().stream().map(this::toView).toList();
+    public CursorPageResponse<AdminProductView> page(int size, String cursor, String keyword, String status) {
+        return queryPage(size, cursor, keyword, status, ADMIN_PAGE_LIMIT);
     }
 
     @Override
-    public CursorPageResponse<AdminProductView> page(int size, String cursor, String keyword, String status) {
-        int safeSize = normalizeSize(size, 50);
-        CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
-        Map<String, Object> params = new HashMap<>();
-        params.put("status", trim(status));
-        params.put("keyword", trim(keyword));
-        params.put("limit", safeSize + 1);
-        if (decodedCursor != null) {
-            params.put("cursorCreatedAt", decodedCursor.createdAt());
-            params.put("cursorId", decodedCursor.id());
-        }
-        List<ShopProduct> rows = productMapper.findAdminCursorPage(params);
-        boolean hasMore = rows.size() > safeSize;
-        List<ShopProduct> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
-        String nextCursor = hasMore
-                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
-                : null;
-        return new CursorPageResponse<>(pageItems.stream().map(this::toView).toList(), nextCursor, hasMore);
+    public List<AdminProductOptionView> searchOptions(String keyword, int size) {
+        return queryPage(size, null, keyword, null, OPTION_LIMIT).items().stream()
+                .map(item -> new AdminProductOptionView(item.id(), item.title(), item.sku(), item.status()))
+                .toList();
     }
 
     @Override
@@ -103,24 +93,18 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     public AdminProductView updateStatus(Long id, String status) {
         ensureStatus(status);
         requireById(id);
-        return productLockExecutorService.execute(
-                id,
-                () -> {
-                    productMapper.updateStatus(id, status);
-                    return toView(productMapper.findById(id));
-                },
-                () -> refreshProductState(id, status));
+        return productLockExecutorService.execute(id, () -> {
+            productMapper.updateStatus(id, status);
+            return toView(productMapper.findById(id));
+        }, () -> refreshProductState(id, status));
     }
 
     @Override
     public void delete(Long id) {
-        productLockExecutorService.execute(
-                id,
-                () -> doDelete(id),
-                () -> {
-                    productCacheRefreshService.removeProductAfterDelete(id);
-                    orderReservationService.removeProductPool(id);
-                });
+        productLockExecutorService.execute(id, () -> doDelete(id), () -> {
+            productCacheRefreshService.removeProductAfterDelete(id);
+            orderReservationService.removeProductPool(id);
+        });
     }
 
     @Override
@@ -131,6 +115,24 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     @Override
     protected String entityLabel() {
         return "商品";
+    }
+
+    private CursorPageResponse<AdminProductView> queryPage(int size, String cursor, String keyword, String status, int maxSize) {
+        int safeSize = normalizeSize(size, maxSize);
+        CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
+        Map<String, Object> params = new HashMap<>();
+        params.put("status", trim(status));
+        params.put("keyword", trim(keyword));
+        params.put("limit", safeSize + 1);
+        if (decodedCursor != null) {
+            params.put("cursorCreatedAt", decodedCursor.createdAt());
+            params.put("cursorId", decodedCursor.id());
+        }
+        List<ShopProduct> rows = productMapper.findAdminCursorPage(params);
+        boolean hasMore = rows.size() > safeSize;
+        List<ShopProduct> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
+        String nextCursor = hasMore ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId()) : null;
+        return new CursorPageResponse<>(pageItems.stream().map(this::toView).toList(), nextCursor, hasMore);
     }
 
     private void fillProduct(ShopProduct product, AdminProductSaveRequest request) {
@@ -165,19 +167,7 @@ public class AdminProductServiceImpl extends AbstractCrudService<ShopProduct, Lo
     }
 
     private AdminProductView toView(ShopProduct product) {
-        return new AdminProductView(
-                product.getId(),
-                product.getSku(),
-                product.getTitle(),
-                product.getVendor(),
-                product.getPlanName(),
-                product.getDescription(),
-                product.getPrice(),
-                product.getAvailableStock(),
-                product.getSoldCount(),
-                product.getStatus(),
-                product.getSortOrder(),
-                product.getUpdatedAt());
+        return new AdminProductView(product.getId(), product.getSku(), product.getTitle(), product.getVendor(), product.getPlanName(), product.getDescription(), product.getPrice(), product.getAvailableStock(), product.getSoldCount(), product.getStatus(), product.getSortOrder(), product.getUpdatedAt());
     }
 
     private void ensureStatus(String status) {

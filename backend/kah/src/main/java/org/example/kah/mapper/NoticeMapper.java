@@ -21,13 +21,6 @@ public interface NoticeMapper {
             """)
     List<ShopNotice> findPublished();
 
-    @Select("""
-            SELECT id, title, summary, content, status, sort_order, published_at, created_at, updated_at
-            FROM shop_notice
-            ORDER BY sort_order ASC, published_at DESC, id DESC
-            """)
-    List<ShopNotice> findAll();
-
     @Select({
             "<script>",
             "SELECT id, title, summary, content, status, sort_order, published_at, created_at, updated_at",

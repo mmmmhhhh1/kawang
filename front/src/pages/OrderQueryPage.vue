@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { DocumentCopy, Lock, Search } from '@element-plus/icons-vue'
@@ -9,32 +9,19 @@ import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/forma
 const profile = memberProfileState
 const loading = ref(false)
 const queried = ref(false)
-const legacyMode = ref(false)
 const orders = ref<OrderRecord[]>([])
 const lookupSecretPattern = /^[A-Za-z0-9]{6,20}$/
 
 const form = reactive({
   buyerContact: '',
   lookupSecret: '',
-  orderNo: '',
 })
 
 const totalAmount = computed(() => orders.value.reduce((sum, item) => sum + Number(item.totalAmount ?? 0), 0))
+const totalCardKeys = computed(() => orders.value.reduce((sum, item) => sum + (item.cardKeys?.length ?? 0), 0))
 
 function formatEnableStatus(status: CardKeyRecord['enableStatus']) {
   return status === 'DISABLED' ? '已停用' : '可用'
-}
-
-function useLookupMode() {
-  legacyMode.value = false
-  form.orderNo = ''
-  queried.value = false
-}
-
-function useLegacyMode() {
-  legacyMode.value = true
-  form.lookupSecret = ''
-  queried.value = false
 }
 
 async function copyCardKeys(cardKeys: CardKeyRecord[]) {
@@ -53,18 +40,13 @@ async function copyCardKeys(cardKeys: CardKeyRecord[]) {
 
 async function handleQuery() {
   const buyerContact = form.buyerContact.trim()
+  const lookupSecret = form.lookupSecret.trim()
   if (!buyerContact) {
     ElMessage.warning('请先输入联系方式')
     return
   }
-
-  if (legacyMode.value) {
-    if (!form.orderNo.trim()) {
-      ElMessage.warning('旧订单兼容查询需要输入订单号')
-      return
-    }
-  } else if (!lookupSecretPattern.test(form.lookupSecret.trim())) {
-    ElMessage.warning('查单密码需为 6-20 位字母或数字')
+  if (!lookupSecretPattern.test(lookupSecret)) {
+    ElMessage.warning('查单密码需为 6 到 20 位字母或数字')
     return
   }
 
@@ -72,8 +54,7 @@ async function handleQuery() {
   try {
     orders.value = await queryOrders({
       buyerContact,
-      lookupSecret: legacyMode.value ? undefined : form.lookupSecret.trim(),
-      orderNo: legacyMode.value ? form.orderNo.trim() : undefined,
+      lookupSecret,
     })
     queried.value = true
   } catch (error: any) {
@@ -86,44 +67,22 @@ async function handleQuery() {
 
 <template>
   <div class="shell-body">
-    <section class="section-shell compact-page-card">
-      <div class="section-heading compact-page-card__heading">
-        <div>
-          <span class="section-kicker">查询</span>
-          <h2>订单查询</h2>
-        </div>
-        <p>新订单默认使用“联系方式 + 查单密码”查询，旧订单仍兼容“联系方式 + 订单号”。</p>
+    <section class="section-shell query-hero page-reveal" :style="{ '--delay': '0.04s' }">
+      <div class="query-hero__copy">
+        <span class="section-kicker">订单查询</span>
+        <h1>只保留当前查单方式，把查询动作做得更直白。</h1>
+        <p>
+          现在查单页只围绕“联系方式 + 查单密码”工作。输入正确后，你可以直接看到订单信息和当前保存的卡密内容，
+          不再需要在不同模式之间反复切换。
+        </p>
       </div>
 
-      <div class="query-form-card">
-        <div class="query-form-card__head">
-          <span class="section-chip">
-            <el-icon><Lock /></el-icon>
-            安全查单
-          </span>
-          <p>新订单会直接显示已分配的卡密，请妥善保管查单凭证。</p>
-        </div>
-
-        <div class="query-mode-switch">
-          <button
-            class="query-mode-switch__item"
-            :class="{ 'is-active': !legacyMode }"
-            type="button"
-            @click="useLookupMode"
-          >
-            新订单查询
-          </button>
-          <button
-            class="query-mode-switch__item"
-            :class="{ 'is-active': legacyMode }"
-            type="button"
-            @click="useLegacyMode"
-          >
-            旧订单兼容
-          </button>
-        </div>
-
-        <el-form label-position="top" class="query-form-grid">
+      <div class="query-hero__panel">
+        <span class="soft-chip">
+          <el-icon><Lock /></el-icon>
+          安全查单
+        </span>
+        <el-form label-position="top">
           <el-form-item label="联系方式">
             <el-input
               v-model="form.buyerContact"
@@ -132,51 +91,49 @@ async function handleQuery() {
               clearable
             />
           </el-form-item>
-          <el-form-item v-if="!legacyMode" label="查单密码">
+          <el-form-item label="查单密码">
             <el-input
               v-model="form.lookupSecret"
               maxlength="20"
               show-password
-              placeholder="6-20 位字母或数字"
+              placeholder="6 到 20 位字母或数字"
               clearable
             />
           </el-form-item>
-          <el-form-item v-else label="订单号">
-            <el-input v-model="form.orderNo" maxlength="64" placeholder="例如 OD20260401000001" clearable />
-          </el-form-item>
         </el-form>
 
-        <div class="query-query-note" v-if="!legacyMode">
-          <strong>新订单查询说明</strong>
-          <p>请输入下单时使用的联系方式和查单密码。系统会返回订单信息和本次分配到的卡密。</p>
-        </div>
-        <div class="query-query-note query-query-note--legacy" v-else>
-          <strong>旧订单兼容说明</strong>
-          <p>仅旧订单支持“联系方式 + 订单号”兼容查询。若订单属于卡密新流程，请切回查单密码模式。</p>
+        <div class="query-hero__note">
+          <strong>查询说明</strong>
+          <p>请使用下单时填写的联系方式与查单密码。查询成功后，会直接返回订单和卡密记录。</p>
         </div>
 
-        <div class="query-form-card__actions">
+        <div class="query-hero__actions">
           <button class="primary-action" type="button" :disabled="loading" @click="handleQuery">
             <el-icon><Search /></el-icon>
-            {{ loading ? '查询中...' : legacyMode ? '查询旧订单' : '查询订单' }}
+            {{ loading ? '查询中...' : '立即查询' }}
           </button>
           <router-link v-if="profile" class="secondary-action" to="/orders/me">我的订单</router-link>
-          <router-link v-else class="secondary-action" to="/login">登录后查看绑定订单</router-link>
+          <router-link v-else class="secondary-action" to="/login">登录会员中心</router-link>
         </div>
       </div>
     </section>
 
-    <section v-if="queried" class="section-shell compact-page-card">
-      <div class="section-heading compact-page-card__heading">
+    <section v-if="queried" class="section-shell page-reveal" :style="{ '--delay': '0.1s' }">
+      <div class="section-heading">
         <div>
-          <span class="section-kicker">结果</span>
-          <h2>查询结果</h2>
+          <span class="section-kicker">查询结果</span>
+          <h2>找到 {{ orders.length }} 笔订单</h2>
         </div>
-        <p>共找到 {{ orders.length }} 笔订单，总金额 {{ formatCurrency(totalAmount) }}</p>
+        <p>总金额 {{ formatCurrency(totalAmount) }}，共展示 {{ totalCardKeys }} 条卡密记录。</p>
       </div>
 
-      <div v-if="orders.length" class="query-result-grid">
-        <article v-for="order in orders" :key="order.id" class="result-card">
+      <div v-if="orders.length" class="result-grid">
+        <article
+          v-for="(order, index) in orders"
+          :key="order.id"
+          class="result-card"
+          :style="{ '--delay': `${0.12 + index * 0.03}s` }"
+        >
           <div class="result-card__top">
             <div>
               <strong>{{ order.productTitle }}</strong>
@@ -224,7 +181,7 @@ async function handleQuery() {
                 </span>
               </div>
             </div>
-            <div v-else class="card-key-empty">该订单没有可展示的卡密，可能是旧账号订单或已无快照。</div>
+            <div v-else class="card-key-empty">当前订单没有可展示的卡密。</div>
           </div>
         </article>
       </div>
@@ -235,114 +192,85 @@ async function handleQuery() {
 </template>
 
 <style scoped>
-.compact-page-card__heading {
-  margin-bottom: 18px;
-}
-
-.query-form-card {
-  padding: 24px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, rgba(243, 249, 255, 0.82), rgba(232, 242, 252, 0.72));
-  border: 1px solid rgba(220, 232, 246, 0.96);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-}
-
-.query-form-card__head {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  align-items: center;
-  margin-bottom: 18px;
-}
-
-.query-form-card__head p {
-  margin: 0;
-  color: var(--text-secondary);
-}
-
-.query-mode-switch {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 18px;
-  padding: 6px;
-  border-radius: 18px;
-  background: rgba(224, 236, 248, 0.74);
-  border: 1px solid rgba(208, 223, 239, 0.92);
-}
-
-.query-mode-switch__item {
-  min-height: 40px;
-  padding: 0 16px;
-  border: none;
-  border-radius: 14px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.query-mode-switch__item.is-active {
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--text-primary);
-  box-shadow: 0 10px 18px rgba(135, 154, 176, 0.12);
-}
-
-.query-form-grid {
+.query-hero {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+  gap: 22px;
 }
 
-.query-query-note {
-  margin-top: 4px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(223, 237, 252, 0.72);
-  border: 1px solid rgba(193, 215, 238, 0.9);
+.query-hero__copy {
+  display: grid;
+  align-content: center;
+  gap: 18px;
 }
 
-.query-query-note--legacy {
-  background: rgba(248, 244, 255, 0.72);
-  border-color: rgba(214, 202, 240, 0.88);
+.query-hero__copy h1 {
+  margin: 0;
+  font-size: clamp(34px, 5vw, 56px);
+  line-height: 1.06;
 }
 
-.query-query-note strong,
-.query-query-note p {
-  display: block;
+.query-hero__copy p {
+  margin: 0;
+  max-width: 640px;
+  color: var(--text-secondary);
+  line-height: 1.9;
 }
 
-.query-query-note p {
+.query-hero__panel {
+  padding: 24px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 213, 232, 0.24), transparent 30%),
+    linear-gradient(180deg, rgba(255, 251, 253, 0.94), rgba(248, 244, 255, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 22px 54px rgba(108, 85, 135, 0.14);
+}
+
+.query-hero__note {
+  margin-top: 6px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 247, 251, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.84);
+}
+
+.query-hero__note p {
   margin: 8px 0 0;
   color: var(--text-secondary);
-  line-height: 1.7;
+  line-height: 1.8;
 }
 
-.query-form-card__actions {
+.query-hero__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 18px;
 }
 
-.query-result-grid {
+.result-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
 }
 
 .result-card {
-  padding: 20px;
-  border-radius: 24px;
-  background: rgba(240, 247, 255, 0.58);
-  border: 1px solid rgba(224, 235, 247, 0.92);
-  box-shadow: 0 16px 32px rgba(128, 146, 168, 0.12);
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 26px;
+  background: rgba(255, 251, 253, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 16px 34px rgba(110, 86, 137, 0.1);
 }
 
-.result-card__top {
+.result-card__top,
+.result-card__keys-head,
+.card-key-item {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .result-card__top strong,
@@ -352,7 +280,7 @@ async function handleQuery() {
 
 .result-card__top span {
   margin-top: 8px;
-  color: var(--text-soft);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -360,14 +288,13 @@ async function handleQuery() {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
-  margin-top: 18px;
 }
 
 .result-card__meta div {
   padding: 12px;
-  border-radius: 16px;
-  background: rgba(248, 252, 255, 0.84);
-  border: 1px solid rgba(225, 235, 246, 0.94);
+  border-radius: 18px;
+  background: rgba(255, 247, 251, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.84);
 }
 
 .result-card__meta span,
@@ -376,29 +303,17 @@ async function handleQuery() {
 }
 
 .result-card__meta span {
-  color: var(--text-soft);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
-.result-card__meta strong {
-  margin-top: 6px;
-}
-
 .result-card__keys {
-  margin-top: 18px;
   padding-top: 18px;
-  border-top: 1px solid rgba(210, 224, 238, 0.94);
-}
-
-.result-card__keys-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
+  border-top: 1px solid rgba(235, 218, 230, 0.84);
 }
 
 .result-card__copy {
-  padding: 0 12px;
+  padding-inline: 12px;
 }
 
 .card-key-list {
@@ -408,18 +323,13 @@ async function handleQuery() {
 }
 
 .card-key-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(248, 252, 255, 0.82);
-  border: 1px solid rgba(222, 232, 244, 0.96);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.86);
 }
 
 .card-key-item strong {
-  font-size: 14px;
   line-height: 1.7;
   word-break: break-all;
 }
@@ -428,33 +338,36 @@ async function handleQuery() {
   flex-shrink: 0;
   padding: 6px 10px;
   border-radius: 999px;
-  background: rgba(203, 234, 216, 0.76);
-  color: #1f7a45;
+  background: rgba(203, 234, 216, 0.82);
+  color: var(--success);
   font-size: 12px;
 }
 
 .card-key-item__status.is-disabled {
-  background: rgba(232, 221, 224, 0.92);
-  color: #8b4f5e;
+  background: rgba(248, 223, 233, 0.9);
+  color: var(--danger);
 }
 
 .card-key-empty {
   margin-top: 14px;
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(246, 248, 252, 0.82);
-  border: 1px dashed rgba(206, 217, 231, 0.96);
+  background: rgba(255, 251, 253, 0.8);
+  border: 1px dashed rgba(233, 205, 219, 0.88);
   color: var(--text-secondary);
-  line-height: 1.7;
 }
 
-@media (max-width: 860px) {
-  .query-form-grid,
+@media (max-width: 960px) {
+  .query-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
   .result-card__meta {
     grid-template-columns: 1fr;
   }
 
-  .query-form-card__head,
   .result-card__top,
   .result-card__keys-head,
   .card-key-item {

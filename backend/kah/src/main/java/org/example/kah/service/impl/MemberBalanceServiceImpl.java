@@ -11,6 +11,7 @@ import org.example.kah.entity.MemberStatus;
 import org.example.kah.entity.MemberUser;
 import org.example.kah.mapper.MemberBalanceFlowMapper;
 import org.example.kah.mapper.MemberUserMapper;
+import org.example.kah.metrics.ShopMetricsService;
 import org.example.kah.service.MemberBalanceService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.springframework.dao.DuplicateKeyException;
@@ -24,6 +25,7 @@ public class MemberBalanceServiceImpl extends AbstractServiceSupport implements 
 
     private final MemberUserMapper memberUserMapper;
     private final MemberBalanceFlowMapper memberBalanceFlowMapper;
+    private final ShopMetricsService shopMetricsService;
 
     @Override
     public MemberUser lockActiveMember(Long userId) {
@@ -57,25 +59,29 @@ public class MemberBalanceServiceImpl extends AbstractServiceSupport implements 
                 try {
                     saveFlow(memberUser.getId(), BalanceBizType.ORDER_DEBIT, bizNo, BalanceDirection.OUT, amount, before, after, remark);
                 } catch (DuplicateKeyException exception) {
+                    shopMetricsService.recordBalanceDebitConflict();
                     throw new BusinessException(ErrorCode.BAD_REQUEST, "订单扣款已经处理过了");
                 }
                 memberUser.setBalance(after);
+                shopMetricsService.recordBalanceDebitSuccess();
                 return memberUser;
             }
         }
+        shopMetricsService.recordBalanceDebitConflict();
         throw new BusinessException(ErrorCode.BAD_REQUEST, "余额变动频繁，请稍后重试");
     }
 
     @Override
     public MemberUser creditForRecharge(MemberUser memberUser, BigDecimal amount, String bizNo, String remark) {
         require(amount != null && amount.compareTo(BigDecimal.ZERO) > 0, "充值金额必须大于 0");
-        require(
-                memberBalanceFlowMapper.countByBiz(BalanceBizType.RECHARGE_APPROVED, bizNo, BalanceDirection.IN) == 0,
-                ErrorCode.BAD_REQUEST,
-                "这笔充值已经入账");
         BigDecimal before = safeBalance(memberUser.getBalance());
         BigDecimal after = before.add(amount);
-        saveFlow(memberUser.getId(), BalanceBizType.RECHARGE_APPROVED, bizNo, BalanceDirection.IN, amount, before, after, remark);
+        try {
+            saveFlow(memberUser.getId(), BalanceBizType.RECHARGE_APPROVED, bizNo, BalanceDirection.IN, amount, before, after, remark);
+        } catch (DuplicateKeyException exception) {
+            shopMetricsService.recordRechargeDuplicate();
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "这笔充值已经入账");
+        }
         memberUserMapper.updateBalance(memberUser.getId(), after);
         memberUser.setBalance(after);
         return memberUser;
@@ -84,13 +90,14 @@ public class MemberBalanceServiceImpl extends AbstractServiceSupport implements 
     @Override
     public MemberUser creditForRefund(MemberUser memberUser, BigDecimal amount, String bizNo, String remark) {
         require(amount != null && amount.compareTo(BigDecimal.ZERO) > 0, "退款金额必须大于 0");
-        require(
-                memberBalanceFlowMapper.countByBiz(BalanceBizType.ORDER_REFUND, bizNo, BalanceDirection.IN) == 0,
-                ErrorCode.BAD_REQUEST,
-                "订单退款已经处理过了");
         BigDecimal before = safeBalance(memberUser.getBalance());
         BigDecimal after = before.add(amount);
-        saveFlow(memberUser.getId(), BalanceBizType.ORDER_REFUND, bizNo, BalanceDirection.IN, amount, before, after, remark);
+        try {
+            saveFlow(memberUser.getId(), BalanceBizType.ORDER_REFUND, bizNo, BalanceDirection.IN, amount, before, after, remark);
+        } catch (DuplicateKeyException exception) {
+            shopMetricsService.recordRefundDuplicate();
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "订单退款已经处理过了");
+        }
         memberUserMapper.updateBalance(memberUser.getId(), after);
         memberUser.setBalance(after);
         return memberUser;

@@ -1,6 +1,5 @@
 package org.example.kah.controller;
 
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
 import org.example.kah.common.CursorPageResponse;
@@ -29,11 +28,6 @@ public class AdminPaymentQrController {
 
     private final PaymentQrService paymentQrService;
     private final AdminPermissionService adminPermissionService;
-
-    @GetMapping
-    public ApiResponse<List<AdminPaymentQrItemView>> list() {
-        return ApiResponse.success(paymentQrService.list());
-    }
 
     @GetMapping("/page")
     public ApiResponse<CursorPageResponse<AdminPaymentQrItemView>> page(

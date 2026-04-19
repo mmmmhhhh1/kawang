@@ -15,6 +15,8 @@ export type ProductRecord = {
   updatedAt: string
 }
 
+export type ProductOptionRecord = Pick<ProductRecord, 'id' | 'sku' | 'title' | 'status'>
+
 export type ProductPayload = {
   sku: string
   title: string
@@ -33,11 +35,6 @@ export type ProductCursorQuery = {
   status?: 'ACTIVE' | 'INACTIVE'
 }
 
-export async function getProducts() {
-  const response = await adminHttp.get<ApiResponse<ProductRecord[]>>('/products')
-  return response.data.data
-}
-
 export async function getProductPage(params: ProductCursorQuery) {
   const response = await adminHttp.get<ApiResponse<CursorPageResponse<ProductRecord>>>('/products/page', {
     params: {
@@ -45,6 +42,16 @@ export async function getProductPage(params: ProductCursorQuery) {
       cursor: params.cursor || undefined,
       keyword: params.keyword || undefined,
       status: params.status || undefined,
+    },
+  })
+  return response.data.data
+}
+
+export async function searchProductOptions(keyword?: string, size = 20) {
+  const response = await adminHttp.get<ApiResponse<ProductOptionRecord[]>>('/products/options', {
+    params: {
+      keyword: keyword || undefined,
+      size,
     },
   })
   return response.data.data

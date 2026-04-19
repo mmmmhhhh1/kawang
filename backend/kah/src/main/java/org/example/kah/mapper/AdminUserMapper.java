@@ -14,8 +14,6 @@ public interface AdminUserMapper {
 
     AdminUser findById(@Param("id") Long id);
 
-    List<AdminUser> findAll();
-
     List<AdminUser> findAdminCursorPage(Map<String, Object> params);
 
     int insert(AdminUser adminUser);

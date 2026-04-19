@@ -1,7 +1,6 @@
 package org.example.kah.controller;
 
 import jakarta.validation.Valid;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
 import org.example.kah.common.CursorPageResponse;
@@ -31,12 +30,6 @@ public class AdminManagerController {
 
     private final AdminManagerService adminManagerService;
     private final AdminPermissionService adminPermissionService;
-
-    @GetMapping
-    public ApiResponse<List<AdminUserItemView>> list(Authentication authentication) {
-        requireManageAdmins(authentication);
-        return ApiResponse.success(adminManagerService.list());
-    }
 
     @GetMapping("/page")
     public ApiResponse<CursorPageResponse<AdminUserItemView>> page(

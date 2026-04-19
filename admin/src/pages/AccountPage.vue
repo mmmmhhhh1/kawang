@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   bulkDisableAccounts,
@@ -14,19 +14,24 @@ import {
   updateAccountStatus,
   updateAccountUsedStatus,
 } from '@/api/accounts'
-import { getProducts, type ProductRecord } from '@/api/products'
+import { searchProductOptions, type ProductOptionRecord } from '@/api/products'
 import { useCursorPager } from '@/utils/cursorPager'
 
 const PAGE_SIZE = 10
+const PRODUCT_OPTION_PAGE_SIZE = 20
+const PRODUCT_SEARCH_DELAY = 220
 
 const loading = ref(false)
 const creating = ref(false)
 const detailVisible = ref(false)
 const createVisible = ref(false)
-const products = ref<ProductRecord[]>([])
+const productsLoading = ref(false)
+const products = ref<ProductOptionRecord[]>([])
 const accounts = ref<AccountRecord[]>([])
 const detail = ref<AccountDetail | null>(null)
 const pager = useCursorPager()
+const productCache = new Map<number, ProductOptionRecord>()
+let productSearchTimer: number | null = null
 
 const filters = reactive({
   productId: undefined as number | undefined,
@@ -71,7 +76,51 @@ function parseBatchInput(rawText: string) {
 }
 
 async function loadProducts() {
-  products.value = await getProducts()
+  await loadProductsByKeyword()
+}
+
+function syncProductOptions(items: ProductOptionRecord[]) {
+  for (const item of items) {
+    productCache.set(item.id, item)
+  }
+
+  const selectedIds = [filters.productId, createForm.productId].filter((id): id is number => typeof id === 'number')
+  const merged = new Map<number, ProductOptionRecord>()
+  for (const item of items) {
+    merged.set(item.id, item)
+  }
+  for (const id of selectedIds) {
+    const cached = productCache.get(id)
+    if (cached) {
+      merged.set(id, cached)
+    }
+  }
+  products.value = Array.from(merged.values())
+}
+
+async function loadProductsByKeyword(keyword = '') {
+  productsLoading.value = true
+  try {
+    const result = await searchProductOptions(keyword || undefined, PRODUCT_OPTION_PAGE_SIZE)
+    syncProductOptions(result)
+  } finally {
+    productsLoading.value = false
+  }
+}
+
+function clearProductSearchTimer() {
+  if (productSearchTimer !== null) {
+    window.clearTimeout(productSearchTimer)
+    productSearchTimer = null
+  }
+}
+
+function handleProductSearch(keyword: string) {
+  clearProductSearchTimer()
+  productSearchTimer = window.setTimeout(() => {
+    productSearchTimer = null
+    void loadProductsByKeyword(keyword.trim())
+  }, PRODUCT_SEARCH_DELAY)
 }
 
 async function loadAccounts(page = 1) {
@@ -235,6 +284,8 @@ onMounted(async () => {
   pager.reset()
   await loadAccounts(1)
 })
+
+onBeforeUnmount(clearProductSearchTimer)
 </script>
 
 <template>
@@ -249,7 +300,16 @@ onMounted(async () => {
       </div>
 
       <div class="toolbar toolbar--wrap">
-        <el-select v-model="filters.productId" clearable placeholder="按商品筛选">
+        <el-select
+          v-model="filters.productId"
+          clearable
+          filterable
+          remote
+          reserve-keyword
+          :loading="productsLoading"
+          placeholder="搜索商品"
+          :remote-method="handleProductSearch"
+        >
           <el-option v-for="item in products" :key="item.id" :label="item.title" :value="item.id" />
         </el-select>
         <el-select v-model="filters.saleStatus" clearable placeholder="按销售状态筛选">
@@ -333,7 +393,15 @@ onMounted(async () => {
     <el-dialog v-model="createVisible" width="min(760px, 94vw)" title="批量导入卡密">
       <el-form label-position="top">
         <el-form-item label="所属商品">
-          <el-select v-model="createForm.productId" filterable placeholder="请选择商品">
+          <el-select
+            v-model="createForm.productId"
+            filterable
+            remote
+            reserve-keyword
+            :loading="productsLoading"
+            placeholder="请选择商品"
+            :remote-method="handleProductSearch"
+          >
             <el-option v-for="item in products" :key="item.id" :label="item.title" :value="item.id" />
           </el-select>
         </el-form-item>

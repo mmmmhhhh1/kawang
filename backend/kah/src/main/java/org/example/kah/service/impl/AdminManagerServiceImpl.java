@@ -33,11 +33,6 @@ public class AdminManagerServiceImpl extends AbstractCrudService<AdminUser, Long
     private final PasswordEncoder passwordEncoder;
 
     @Override
-    public List<AdminUserItemView> list() {
-        return adminUserMapper.findAll().stream().map(this::toItemView).toList();
-    }
-
-    @Override
     public CursorPageResponse<AdminUserItemView> page(int size, String cursor, String keyword) {
         int safeSize = normalizeSize(size, 50);
         CursorCodecUtils.DecodedCursor decodedCursor = CursorCodecUtils.decode(cursor);
@@ -51,9 +46,7 @@ public class AdminManagerServiceImpl extends AbstractCrudService<AdminUser, Long
         List<AdminUser> rows = adminUserMapper.findAdminCursorPage(params);
         boolean hasMore = rows.size() > safeSize;
         List<AdminUser> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
-        String nextCursor = hasMore
-                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
-                : null;
+        String nextCursor = hasMore ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId()) : null;
         return new CursorPageResponse<>(pageItems.stream().map(this::toItemView).toList(), nextCursor, hasMore);
     }
 
@@ -63,7 +56,6 @@ public class AdminManagerServiceImpl extends AbstractCrudService<AdminUser, Long
         if (adminUserMapper.findByUsername(trim(request.username())) != null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "管理员用户名已存在");
         }
-
         AdminUser adminUser = new AdminUser();
         adminUser.setUsername(trim(request.username()));
         adminUser.setDisplayName(trim(request.displayName()));
@@ -75,7 +67,6 @@ public class AdminManagerServiceImpl extends AbstractCrudService<AdminUser, Long
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "管理员用户名已存在");
         }
-
         replacePermissions(adminUser.getId(), request.permissions());
         return toDetailView(requireById(adminUser.getId()));
     }
@@ -138,29 +129,14 @@ public class AdminManagerServiceImpl extends AbstractCrudService<AdminUser, Long
         if (Boolean.TRUE.equals(adminUser.getIsSuperAdmin())) {
             return AdminPermissionCode.all();
         }
-        return adminUserPermissionMapper.findByAdminUserId(adminUser.getId()).stream()
-                .map(item -> item.getPermissionCode())
-                .toList();
+        return adminUserPermissionMapper.findByAdminUserId(adminUser.getId()).stream().map(item -> item.getPermissionCode()).toList();
     }
 
     private AdminUserItemView toItemView(AdminUser adminUser) {
-        return new AdminUserItemView(
-                adminUser.getId(),
-                adminUser.getUsername(),
-                adminUser.getDisplayName(),
-                Boolean.TRUE.equals(adminUser.getIsSuperAdmin()),
-                resolvePermissions(adminUser),
-                adminUser.getCreatedAt());
+        return new AdminUserItemView(adminUser.getId(), adminUser.getUsername(), adminUser.getDisplayName(), Boolean.TRUE.equals(adminUser.getIsSuperAdmin()), resolvePermissions(adminUser), adminUser.getCreatedAt());
     }
 
     private AdminUserDetailView toDetailView(AdminUser adminUser) {
-        return new AdminUserDetailView(
-                adminUser.getId(),
-                adminUser.getUsername(),
-                adminUser.getDisplayName(),
-                Boolean.TRUE.equals(adminUser.getIsSuperAdmin()),
-                resolvePermissions(adminUser),
-                adminUser.getCreatedAt(),
-                adminUser.getUpdatedAt());
+        return new AdminUserDetailView(adminUser.getId(), adminUser.getUsername(), adminUser.getDisplayName(), Boolean.TRUE.equals(adminUser.getIsSuperAdmin()), resolvePermissions(adminUser), adminUser.getCreatedAt(), adminUser.getUpdatedAt());
     }
 }

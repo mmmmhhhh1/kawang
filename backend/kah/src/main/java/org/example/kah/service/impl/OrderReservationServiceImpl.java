@@ -16,6 +16,7 @@ import org.example.kah.entity.EnableStatus;
 import org.example.kah.entity.ProductAccount;
 import org.example.kah.entity.SaleStatus;
 import org.example.kah.mapper.ProductAccountMapper;
+import org.example.kah.metrics.ShopMetricsService;
 import org.example.kah.reservation.OrderReservation;
 import org.example.kah.reservation.OrderReservationItem;
 import org.example.kah.service.OrderReservationService;
@@ -23,7 +24,6 @@ import org.example.kah.util.AllocationHandleGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
@@ -43,9 +43,11 @@ public class OrderReservationServiceImpl implements OrderReservationService {
     private static final DefaultRedisScript<List> RESERVE_SCRIPT = loadListScript("lua/order_reservation_reserve.lua");
     private static final DefaultRedisScript<Long> CLEANUP_SCRIPT = loadLongScript("lua/order_reservation_cleanup.lua");
     private static final DefaultRedisScript<Long> SWAP_POOL_SCRIPT = loadLongScript("lua/order_pool_swap.lua");
+    private static final DefaultRedisScript<Long> ADD_AVAILABLE_ITEMS_SCRIPT = loadLongScript("lua/order_pool_add_available.lua");
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ProductAccountMapper productAccountMapper;
+    private final ShopMetricsService shopMetricsService;
 
     @Override
     public OrderReservation reserve(Long productId, Long userId, int quantity) {
@@ -57,12 +59,20 @@ public class OrderReservationServiceImpl implements OrderReservationService {
 
         String token = UUID.randomUUID().toString().replace("-", "");
         long expiresAt = Instant.now().plus(OrderReservationConstants.ORDER_RESERVATION_TTL).toEpochMilli();
-        List<?> raw = executeReserveScript(productId, userId, quantity, token, expiresAt);
+        List<?> raw;
+        try {
+            raw = executeReserveScript(productId, userId, quantity, token, expiresAt);
+        } catch (RuntimeException | Error exception) {
+            shopMetricsService.recordReservationFailure();
+            throw exception;
+        }
         List<OrderReservationItem> items = toReservationItems(raw);
         if (items.size() < quantity) {
             cleanupTokenOnly(token);
+            shopMetricsService.recordReservationFailure();
             throw new BusinessException(ErrorCode.BAD_REQUEST, "库存不足，请稍后再试");
         }
+        shopMetricsService.recordReservationSuccess();
         return new OrderReservation(token, productId, userId, items);
     }
 
@@ -90,6 +100,7 @@ public class OrderReservationServiceImpl implements OrderReservationService {
             log.warn("回滚预占资源失败，准备重建商品资源池，productId={}, token={}", reservation.productId(), reservation.token(), exception);
             rebuildProductPool(reservation.productId());
         }
+        shopMetricsService.recordReservationRollback();
     }
 
     @Override
@@ -129,23 +140,24 @@ public class OrderReservationServiceImpl implements OrderReservationService {
         if (productId == null || productId <= 0 || items == null || items.isEmpty()) {
             return;
         }
-        String poolKey = OrderReservationConstants.availablePoolKey(productId);
-        String reservedKey = OrderReservationConstants.reservedPoolKey(productId);
         try {
-            Set<ZSetOperations.TypedTuple<String>> tuples = new LinkedHashSet<>();
+            List<String> args = new ArrayList<>();
             for (Map.Entry<String, Double> entry : items.entrySet()) {
                 if (entry.getKey() == null || entry.getKey().isBlank() || entry.getValue() == null) {
                     continue;
                 }
-                Double reservedScore = stringRedisTemplate.opsForZSet().score(reservedKey, entry.getKey());
-                if (reservedScore != null) {
-                    continue;
-                }
-                tuples.add(ZSetOperations.TypedTuple.of(entry.getKey(), entry.getValue()));
+                args.add(entry.getKey());
+                args.add(String.valueOf(entry.getValue()));
             }
-            if (!tuples.isEmpty()) {
-                stringRedisTemplate.opsForZSet().add(poolKey, tuples);
+            if (args.isEmpty()) {
+                return;
             }
+            stringRedisTemplate.execute(
+                    ADD_AVAILABLE_ITEMS_SCRIPT,
+                    List.of(
+                            OrderReservationConstants.availablePoolKey(productId),
+                            OrderReservationConstants.reservedPoolKey(productId)),
+                    args.toArray(String[]::new));
         } catch (Exception exception) {
             log.warn("增量写入商品资源池失败，productId={}", productId, exception);
             rebuildProductPool(productId);
@@ -234,6 +246,7 @@ public class OrderReservationServiceImpl implements OrderReservationService {
                 }
                 List<OrderReservationItem> restorableItems = resolveRestorableItems(reservation.productId(), reservation.items());
                 cleanupReservation(reservation, restorableItems);
+                shopMetricsService.recordReservationRecover();
             } catch (Exception exception) {
                 log.warn("恢复过期预占资源失败，token={}", token, exception);
             }
@@ -256,7 +269,7 @@ public class OrderReservationServiceImpl implements OrderReservationService {
                     String.valueOf(productId),
                     String.valueOf(userId),
                     token);
-        } catch (DataAccessException exception) {
+        } catch (Exception exception) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "下单服务暂时不可用，请稍后重试");
         }
     }

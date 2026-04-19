@@ -14,6 +14,7 @@ import org.example.kah.cache.ProductStatsCacheItem;
 import org.example.kah.entity.ProductStatus;
 import org.example.kah.entity.ShopProduct;
 import org.example.kah.mapper.ProductMapper;
+import org.example.kah.metrics.ShopMetricsService;
 import org.example.kah.service.DistributedLockService;
 import org.example.kah.service.ProductCacheService;
 import org.example.kah.util.CacheTtlUtils;
@@ -38,16 +39,20 @@ public class ProductCacheServiceImpl implements ProductCacheService {
     private final ProductCacheCodec productCacheCodec;
     private final ProductMapper productMapper;
     private final DistributedLockService distributedLockService;
+    private final ShopMetricsService shopMetricsService;
 
     @Override
     public List<ProductBaseCacheItem> getActiveProductBases() {
         try {
             String cached = stringRedisTemplate.opsForValue().get(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
             if (cached != null) {
+                shopMetricsService.recordProductBaseCacheHit();
                 return parseCachedValue(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, cached, productCacheCodec::parseBaseList);
             }
+            shopMetricsService.recordProductBaseCacheMiss();
             return rebuildActiveBaseListWithMutex();
         } catch (Exception exception) {
+            shopMetricsService.recordProductBaseCacheFallback();
             log.warn("读取活动商品基础缓存失败，回退数据库查询", exception);
             return loadActiveProductBasesFromDb();
         }
@@ -61,10 +66,13 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         try {
             String cached = stringRedisTemplate.opsForValue().get(ProductCacheConstants.baseDetailKey(productId));
             if (cached != null) {
+                shopMetricsService.recordProductBaseCacheHit();
                 return parseCachedValue(ProductCacheConstants.baseDetailKey(productId), cached, productCacheCodec::parseBaseDetail);
             }
+            shopMetricsService.recordProductBaseCacheMiss();
             return rebuildBaseDetailWithMutex(productId);
         } catch (Exception exception) {
+            shopMetricsService.recordProductBaseCacheFallback();
             log.warn("读取商品基础缓存失败，回退数据库查询，productId={}", productId, exception);
             return loadActiveProductBaseFromDb(productId);
         }
@@ -82,6 +90,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             List<String> cachedValues = stringRedisTemplate.opsForValue().multiGet(keys);
             Map<Long, ProductStatsCacheItem> result = new LinkedHashMap<>();
             List<Long> missingIds = new ArrayList<>();
+            int hitCount = 0;
             for (int index = 0; index < normalizedIds.size(); index++) {
                 Long productId = normalizedIds.get(index);
                 String key = ProductCacheConstants.statsKey(productId);
@@ -95,16 +104,27 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                     missingIds.add(productId);
                 } else {
                     result.put(productId, item);
+                    hitCount++;
                 }
             }
-            for (Long missingId : missingIds) {
+            if (hitCount > 0) {
+                shopMetricsService.recordProductStatsCacheHit(hitCount);
+            }
+            if (missingIds.size() == 1) {
+                Long missingId = missingIds.get(0);
                 ProductStatsCacheItem item = getProductStats(missingId);
                 if (item != null) {
                     result.put(missingId, item);
                 }
+                return result;
+            }
+            if (!missingIds.isEmpty()) {
+                shopMetricsService.recordProductStatsCacheMiss(missingIds.size());
+                result.putAll(rebuildMissingStatsBatch(missingIds));
             }
             return result;
         } catch (Exception exception) {
+            shopMetricsService.recordProductStatsCacheFallback(normalizedIds.size());
             log.warn("批量读取商品统计缓存失败，回退数据库查询", exception);
             return loadStatsMapFromDb(normalizedIds);
         }
@@ -119,10 +139,13 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             String key = ProductCacheConstants.statsKey(productId);
             String cached = stringRedisTemplate.opsForValue().get(key);
             if (cached != null) {
+                shopMetricsService.recordProductStatsCacheHit(1);
                 return parseCachedValue(key, cached, productCacheCodec::parseStats);
             }
+            shopMetricsService.recordProductStatsCacheMiss(1);
             return rebuildStatsWithMutex(productId);
         } catch (Exception exception) {
+            shopMetricsService.recordProductStatsCacheFallback(1);
             log.warn("读取商品统计缓存失败，回退数据库查询，productId={}", productId, exception);
             return loadProductStatsFromDb(productId);
         }
@@ -137,16 +160,14 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
             safeSet(ProductCacheConstants.baseDetailKey(productId), ProductCacheConstants.NULL_MARKER, nullCacheTtl());
             evictProductStats(productId);
-        } else {
-            safeSet(
-                    ProductCacheConstants.baseDetailKey(productId),
-                    productCacheCodec.toJson(toBaseItem(product)),
-                    baseCacheTtl());
+            safeDelete(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
+            return;
         }
         safeSet(
-                ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY,
-                productCacheCodec.toJson(loadActiveProductBasesFromDb()),
+                ProductCacheConstants.baseDetailKey(productId),
+                productCacheCodec.toJson(toBaseItem(product)),
                 baseCacheTtl());
+        safeDelete(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
     }
 
     @Override
@@ -184,11 +205,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             return;
         }
         safeSet(ProductCacheConstants.baseDetailKey(productId), ProductCacheConstants.NULL_MARKER, nullCacheTtl());
-        safeDelete(ProductCacheConstants.statsKey(productId));
-        safeSet(
-                ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY,
-                productCacheCodec.toJson(loadActiveProductBasesFromDb()),
-                baseCacheTtl());
+        safeDelete(ProductCacheConstants.statsKey(productId), ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
     }
 
     @Override
@@ -218,6 +235,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 }
                 List<ProductBaseCacheItem> loaded = loadActiveProductBasesFromDb();
                 safeSet(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, productCacheCodec.toJson(loaded), baseCacheTtl());
+                shopMetricsService.recordProductBaseCacheRebuild();
                 return loaded;
             } finally {
                 distributedLockService.release(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_LOCK_KEY, token);
@@ -246,6 +264,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 } else {
                     safeSet(cacheKey, productCacheCodec.toJson(loaded), baseCacheTtl());
                 }
+                shopMetricsService.recordProductBaseCacheRebuild();
                 return loaded;
             } finally {
                 distributedLockService.release(lockKey, token);
@@ -274,6 +293,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 } else {
                     safeSet(cacheKey, productCacheCodec.toJson(loaded), statsCacheTtl());
                 }
+                shopMetricsService.recordProductStatsCacheRebuild();
                 return loaded;
             } finally {
                 distributedLockService.release(lockKey, token);
@@ -284,6 +304,23 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 cacheKey,
                 cached -> parseCachedValue(cacheKey, cached, productCacheCodec::parseStats));
         return waited != null ? waited : loadProductStatsFromDb(productId);
+    }
+
+    private Map<Long, ProductStatsCacheItem> rebuildMissingStatsBatch(List<Long> productIds) {
+        Map<Long, ProductStatsCacheItem> loadedStats = loadStatsMapFromDb(productIds);
+        Map<Long, ProductStatsCacheItem> result = new LinkedHashMap<>();
+        for (Long productId : productIds) {
+            ProductStatsCacheItem item = loadedStats.get(productId);
+            String cacheKey = ProductCacheConstants.statsKey(productId);
+            if (item == null) {
+                safeSet(cacheKey, ProductCacheConstants.NULL_MARKER, nullCacheTtl());
+                continue;
+            }
+            safeSet(cacheKey, productCacheCodec.toJson(item), statsCacheTtl());
+            result.put(productId, item);
+        }
+        shopMetricsService.recordProductStatsCacheRebuild(productIds.size());
+        return result;
     }
 
     private List<ProductBaseCacheItem> loadActiveProductBasesFromDb() {

@@ -32,9 +32,9 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long> implements AdminMemberService {
 
-    private static final String MEMBER_LABEL = "\u4f1a\u5458";
-    private static final String MEMBER_NOT_FOUND = "\u4f1a\u5458\u4e0d\u5b58\u5728";
-    private static final String INVALID_STATUS = "\u4f1a\u5458\u72b6\u6001\u975e\u6cd5";
+    private static final String MEMBER_LABEL = "会员";
+    private static final String MEMBER_NOT_FOUND = "会员不存在";
+    private static final String INVALID_STATUS = "会员状态非法";
     private static final int ORDER_DETAIL_PARALLEL_THRESHOLD = 8;
 
     private final MemberUserMapper memberUserMapper;
@@ -43,11 +43,6 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
     private final CryptoService cryptoService;
     private final MemberActivityCacheService memberActivityCacheService;
     private final AsyncTaskSupport asyncTaskSupport;
-
-    @Override
-    public List<AdminMemberListView> list() {
-        return memberUserMapper.findAll().stream().map(this::toListView).toList();
-    }
 
     @Override
     public CursorPageResponse<AdminMemberListView> page(int size, String cursor, String keyword, String status) {
@@ -64,9 +59,7 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
         List<MemberUser> rows = memberUserMapper.findAdminCursorPage(params);
         boolean hasMore = rows.size() > safeSize;
         List<MemberUser> pageItems = hasMore ? rows.subList(0, safeSize) : rows;
-        String nextCursor = hasMore
-                ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId())
-                : null;
+        String nextCursor = hasMore ? CursorCodecUtils.encode(pageItems.get(pageItems.size() - 1).getCreatedAt(), pageItems.get(pageItems.size() - 1).getId()) : null;
         return new CursorPageResponse<>(pageItems.stream().map(this::toListView).toList(), nextCursor, hasMore);
     }
 
@@ -74,22 +67,13 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
     public AdminMemberDetailView detail(Long id) {
         CompletableFuture<MemberUser> memberFuture = asyncTaskSupport.supplyAsync(() -> memberUserMapper.findById(id));
         CompletableFuture<List<ShopOrder>> orderFuture = asyncTaskSupport.supplyAsync(() -> shopOrderMapper.findByUserId(id));
-
         MemberUser memberUser = asyncTaskSupport.join(memberFuture);
         if (memberUser == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, MEMBER_NOT_FOUND);
         }
-
         List<ShopOrder> orders = asyncTaskSupport.join(orderFuture);
         List<AdminMemberOrderView> orderViews = toOrderViews(orders);
-        return new AdminMemberDetailView(
-                memberUser.getId(),
-                memberUser.getUsername(),
-                memberUser.getMail(),
-                memberUser.getStatus(),
-                memberUser.getCreatedAt(),
-                memberUser.getUpdatedAt(),
-                orderViews);
+        return new AdminMemberDetailView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail(), memberUser.getStatus(), memberUser.getCreatedAt(), memberUser.getUpdatedAt(), orderViews);
     }
 
     @Override
@@ -122,12 +106,7 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
     }
 
     private AdminMemberListView toListView(MemberUser memberUser) {
-        return new AdminMemberListView(
-                memberUser.getId(),
-                memberUser.getUsername(),
-                memberUser.getMail(),
-                memberUser.getStatus(),
-                memberUser.getCreatedAt());
+        return new AdminMemberListView(memberUser.getId(), memberUser.getUsername(), memberUser.getMail(), memberUser.getStatus(), memberUser.getCreatedAt());
     }
 
     private List<AdminMemberOrderView> toOrderViews(List<ShopOrder> orders) {
@@ -137,28 +116,13 @@ public class AdminMemberServiceImpl extends AbstractCrudService<MemberUser, Long
         if (orders.size() == 1 || orders.size() > ORDER_DETAIL_PARALLEL_THRESHOLD) {
             return orders.stream().map(this::toOrderView).toList();
         }
-        List<CompletableFuture<AdminMemberOrderView>> futures = orders.stream()
-                .map(order -> asyncTaskSupport.supplyAsync(() -> toOrderView(order)))
-                .toList();
+        List<CompletableFuture<AdminMemberOrderView>> futures = orders.stream().map(order -> asyncTaskSupport.supplyAsync(() -> toOrderView(order))).toList();
         return futures.stream().map(asyncTaskSupport::join).toList();
     }
 
     private AdminMemberOrderView toOrderView(ShopOrder order) {
-        List<String> cardKeys = shopOrderAccountMapper.findByOrderId(order.getId()).stream()
-                .map(this::resolveCardKey)
-                .filter(Objects::nonNull)
-                .toList();
-        return new AdminMemberOrderView(
-                order.getId(),
-                order.getOrderNo(),
-                order.getProductId(),
-                order.getProductTitleSnapshot(),
-                order.getQuantity(),
-                order.getTotalAmount(),
-                order.getBuyerContact(),
-                order.getStatus(),
-                order.getCreatedAt(),
-                cardKeys);
+        List<String> cardKeys = shopOrderAccountMapper.findByOrderId(order.getId()).stream().map(this::resolveCardKey).filter(Objects::nonNull).toList();
+        return new AdminMemberOrderView(order.getId(), order.getOrderNo(), order.getProductId(), order.getProductTitleSnapshot(), order.getQuantity(), order.getTotalAmount(), order.getBuyerContact(), order.getStatus(), order.getCreatedAt(), cardKeys);
     }
 
     private String resolveCardKey(ShopOrderAccount account) {

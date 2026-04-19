@@ -9,8 +9,6 @@ import org.example.kah.entity.PaymentQrConfig;
 @Mapper
 public interface PaymentQrConfigMapper {
 
-    List<PaymentQrConfig> findAll();
-
     List<PaymentQrConfig> findCursorPage(Map<String, Object> params);
 
     PaymentQrConfig findById(@Param("id") Long id);

@@ -2,7 +2,7 @@
 import { onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Lock, Message, UserFilled } from '@element-plus/icons-vue'
+import { ChatDotRound, Lock, Message, Star } from '@element-plus/icons-vue'
 import { loginMember, loginMemberByEmail, sendEmailCode } from '@/api/auth'
 
 type LoginMode = 'password' | 'email'
@@ -12,7 +12,7 @@ const router = useRouter()
 const loading = ref(false)
 const sendingCode = ref(false)
 const codeCountdown = ref(0)
-const mode = ref<LoginMode>('password')
+const mode = ref<LoginMode>('email')
 
 const passwordForm = reactive({
   username: '',
@@ -137,36 +137,51 @@ onBeforeUnmount(stopCountdown)
 
 <template>
   <div class="shell-body">
-    <section class="auth-grid">
-      <article class="glass-card auth-intro-card">
-        <span class="auth-card-title">登录</span>
-        <h1>登录会员账号</h1>
-        <p>登录后下单会自动绑定到当前账号，并统一在“我的订单”里查看历史记录和已发放内容。</p>
-        <ul class="auth-feature-list">
-          <li>
-            <el-icon><UserFilled /></el-icon>
-            支持会员订单自动绑定
-          </li>
-          <li>
-            <el-icon><Lock /></el-icon>
-            保留原有账号密码登录
-          </li>
-          <li>
-            <el-icon><Message /></el-icon>
-            新增邮箱验证码快捷登录
-          </li>
-        </ul>
+    <section class="auth-scene page-reveal" :style="{ '--delay': '0.04s' }">
+      <article class="glass-card auth-scene__story">
+        <span class="section-kicker">登录通行证</span>
+        <h1>欢迎回到你的樱落会员仓库。</h1>
+        <p>
+          登录后，所有购买记录、充值进度和已发放卡密都会收进同一个会员中心。
+          邮箱验证码是默认主入口，账号密码则作为次入口保留。
+        </p>
+
+        <div class="auth-story__list">
+          <div class="auth-story__item">
+            <span class="section-chip">
+              <el-icon><Message /></el-icon>
+              邮箱即达
+            </span>
+            <p>更适合手机登录，验证码到达后直接进入会员中心。</p>
+          </div>
+          <div class="auth-story__item">
+            <span class="section-chip">
+              <el-icon><Lock /></el-icon>
+              购买记录归档
+            </span>
+            <p>登录后下单会自动绑定到当前账号，卡密与余额记录统一查看。</p>
+          </div>
+          <div class="auth-story__item">
+            <span class="section-chip">
+              <el-icon><Star /></el-icon>
+              更清晰的入口
+            </span>
+            <p>这次只保留当前会员流程，不再让旧逻辑干扰你真正要完成的动作。</p>
+          </div>
+        </div>
       </article>
 
-      <article class="auth-form-card">
-        <div class="auth-form-card__head auth-form-card__head--center">
-          <span class="auth-card-title">会员登录</span>
-          <h2>{{ mode === 'password' ? '账号密码登录' : '邮箱验证码登录' }}</h2>
+      <article class="auth-panel">
+        <div class="auth-panel__head">
+          <span class="soft-chip">
+            <el-icon><ChatDotRound /></el-icon>
+            会员登录
+          </span>
+          <h2>{{ mode === 'email' ? '邮箱验证码登录' : '账号密码登录' }}</h2>
           <p>
-            {{
-              mode === 'password'
-                ? '输入用户名和密码，继续查询已绑定订单或完成新的下单流程。'
-                : '输入邮箱并完成验证码校验，无需密码即可进入会员账号。'
+            {{ mode === 'email'
+              ? '推荐直接使用邮箱验证码进入账号，操作更快也更适合手机。'
+              : '如果你已经习惯用户名与密码，也可以继续使用传统方式登录。'
             }}
           </p>
         </div>
@@ -174,23 +189,42 @@ onBeforeUnmount(stopCountdown)
         <div class="auth-mode-switch" role="tablist" aria-label="登录方式切换">
           <button
             class="auth-mode-switch__item"
-            :class="{ 'is-active': mode === 'password' }"
-            type="button"
-            @click="mode = 'password'"
-          >
-            账号密码登录
-          </button>
-          <button
-            class="auth-mode-switch__item"
             :class="{ 'is-active': mode === 'email' }"
             type="button"
             @click="mode = 'email'"
           >
-            邮箱验证码登录
+            邮箱验证码
+          </button>
+          <button
+            class="auth-mode-switch__item"
+            :class="{ 'is-active': mode === 'password' }"
+            type="button"
+            @click="mode = 'password'"
+          >
+            账号密码
           </button>
         </div>
 
-        <el-form v-if="mode === 'password'" label-position="top">
+        <el-form v-if="mode === 'email'" label-position="top">
+          <el-form-item label="邮箱地址">
+            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入常用邮箱地址" />
+          </el-form-item>
+          <el-form-item label="邮箱验证码">
+            <div class="auth-code-row">
+              <el-input
+                class="auth-code-input"
+                v-model="emailForm.code"
+                maxlength="6"
+                placeholder="请输入 6 位验证码"
+              />
+              <el-button class="auth-code-button" :disabled="sendingCode || codeCountdown > 0" @click="handleSendCode">
+                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s 后重试` : '发送验证码' }}
+              </el-button>
+            </div>
+          </el-form-item>
+        </el-form>
+
+        <el-form v-else label-position="top">
           <el-form-item label="用户名">
             <el-input v-model="passwordForm.username" maxlength="32" placeholder="请输入用户名" />
           </el-form-item>
@@ -199,27 +233,13 @@ onBeforeUnmount(stopCountdown)
           </el-form-item>
         </el-form>
 
-        <el-form v-else label-position="top">
-          <el-form-item label="邮箱">
-            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入邮箱地址" />
-          </el-form-item>
-          <el-form-item label="邮箱验证码">
-            <div class="auth-code-row">
-              <el-input class="auth-code-input" v-model="emailForm.code" maxlength="6" placeholder="请输入 6 位验证码" />
-              <el-button class="auth-code-button" :disabled="sendingCode || codeCountdown > 0" @click="handleSendCode">
-                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s 后重试` : '发送验证码' }}
-              </el-button>
-            </div>
-          </el-form-item>
-        </el-form>
-
-        <button class="primary-action auth-submit" type="button" :disabled="loading" @click="submit">
-          {{ loading ? '登录中...' : '立即登录' }}
+        <button class="primary-action auth-panel__submit" type="button" :disabled="loading" @click="submit">
+          {{ loading ? '登录中...' : '进入会员中心' }}
         </button>
 
-        <div class="auth-foot-links">
+        <div class="auth-panel__foot">
           <span>还没有账号？</span>
-          <router-link to="/register">去注册</router-link>
+          <router-link to="/register">立即注册</router-link>
         </div>
       </article>
     </section>
@@ -227,87 +247,75 @@ onBeforeUnmount(stopCountdown)
 </template>
 
 <style scoped>
-.auth-grid {
+.auth-scene {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 420px);
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 430px);
   gap: 22px;
 }
 
-.auth-intro-card {
-  text-align: center;
+.auth-scene__story {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  min-height: 100%;
 }
 
-.auth-card-title {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: fit-content;
-  min-height: 32px;
-  margin: 0 auto 14px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  backdrop-filter: blur(18px);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-decoration: none;
-}
-
-.auth-intro-card h1 {
-  margin: 0 0 12px;
-  font-size: clamp(30px, 4vw, 42px);
-}
-
-.auth-intro-card p {
+.auth-scene__story h1 {
   margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.8;
+  max-width: 620px;
+  font-size: clamp(34px, 5vw, 54px);
+  line-height: 1.06;
 }
 
-.auth-feature-list {
-  margin: 24px 0 0;
-  padding: 0;
-  list-style: none;
+.auth-scene__story p {
+  margin: 0;
+  max-width: 620px;
+  color: var(--text-secondary);
+  line-height: 1.9;
+}
+
+.auth-story__list {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-story__item {
+  padding: 18px;
+  border-radius: 24px;
+  background: rgba(255, 251, 253, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  box-shadow: 0 14px 30px rgba(108, 85, 135, 0.1);
+}
+
+.auth-story__item p {
+  margin-top: 12px;
+}
+
+.auth-panel {
+  padding: 28px;
+  border-radius: 30px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 213, 232, 0.26), transparent 30%),
+    linear-gradient(180deg, rgba(255, 251, 253, 0.94), rgba(248, 244, 255, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 26px 70px rgba(102, 79, 129, 0.16);
+}
+
+.auth-panel__head {
   display: grid;
   gap: 12px;
-  text-align: left;
+  margin-bottom: 22px;
 }
 
-.auth-feature-list li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.28);
+.auth-panel__head h2 {
+  margin: 0;
+  font-size: 32px;
 }
 
-.auth-form-card {
-  padding: 26px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  box-shadow: var(--shadow-soft);
-  backdrop-filter: blur(28px);
-}
-
-.auth-form-card__head--center {
-  text-align: center;
-}
-
-.auth-form-card__head h2 {
-  margin: 0 0 8px;
-  font-size: 30px;
-}
-
-.auth-form-card__head p {
-  margin: 0 0 22px;
+.auth-panel__head p {
+  margin: 0;
   color: var(--text-secondary);
-  line-height: 1.8;
+  line-height: 1.82;
 }
 
 .auth-mode-switch {
@@ -317,24 +325,25 @@ onBeforeUnmount(stopCountdown)
   margin-bottom: 18px;
   padding: 6px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(247, 238, 247, 0.88);
+  border: 1px solid rgba(238, 215, 228, 0.92);
 }
 
 .auth-mode-switch__item {
-  min-height: 42px;
+  min-height: 44px;
   border: none;
   border-radius: 14px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.22s ease, background-color 0.22s ease, box-shadow 0.22s ease;
 }
 
 .auth-mode-switch__item.is-active {
-  background: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.9);
   color: var(--text-primary);
-  box-shadow: 0 12px 20px rgba(120, 138, 160, 0.16);
+  box-shadow: 0 12px 24px rgba(126, 102, 154, 0.14);
+  transform: translateY(-1px);
 }
 
 .auth-code-row {
@@ -349,15 +358,15 @@ onBeforeUnmount(stopCountdown)
 }
 
 .auth-code-button {
-  min-width: 132px;
+  min-width: 136px;
 }
 
-.auth-submit {
+.auth-panel__submit {
   width: 100%;
   margin-top: 8px;
 }
 
-.auth-foot-links {
+.auth-panel__foot {
   display: flex;
   gap: 8px;
   justify-content: center;
@@ -365,14 +374,14 @@ onBeforeUnmount(stopCountdown)
   color: var(--text-secondary);
 }
 
-.auth-foot-links a {
-  color: var(--accent);
+.auth-panel__foot a {
+  color: var(--accent-pink-strong);
   font-weight: 700;
   text-decoration: none;
 }
 
-@media (max-width: 920px) {
-  .auth-grid {
+@media (max-width: 960px) {
+  .auth-scene {
     grid-template-columns: 1fr;
   }
 }

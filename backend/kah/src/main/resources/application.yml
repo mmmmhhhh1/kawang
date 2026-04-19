@@ -91,3 +91,16 @@ shop:
       - http://localhost:5174
       - http://127.0.0.1:5173
       - http://127.0.0.1:5174
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+      roles: ADMIN
+  metrics:
+    tags:
+      application: ${spring.application.name}

@@ -30,11 +30,6 @@ public class AdminUserController {
     private final AdminMemberService adminMemberService;
     private final AdminPermissionService adminPermissionService;
 
-    @GetMapping
-    public ApiResponse<List<AdminMemberListView>> list() {
-        return ApiResponse.success(adminMemberService.list());
-    }
-
     @GetMapping("/page")
     public ApiResponse<CursorPageResponse<AdminMemberListView>> page(
             @RequestParam(defaultValue = "20") int size,

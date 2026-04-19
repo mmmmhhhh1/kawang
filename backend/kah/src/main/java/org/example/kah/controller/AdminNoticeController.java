@@ -1,7 +1,6 @@
 package org.example.kah.controller;
 
 import jakarta.validation.Valid;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.ApiResponse;
 import org.example.kah.common.CursorPageResponse;
@@ -25,11 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminNoticeController {
 
     private final NoticeService noticeService;
-
-    @GetMapping
-    public ApiResponse<List<AdminNoticeView>> list() {
-        return ApiResponse.success(noticeService.listAdmin());
-    }
 
     @GetMapping("/page")
     public ApiResponse<CursorPageResponse<AdminNoticeView>> page(

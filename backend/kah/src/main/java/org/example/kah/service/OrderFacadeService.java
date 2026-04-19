@@ -1,6 +1,6 @@
 package org.example.kah.service;
 
-import java.util.List;
+import org.example.kah.dto.publicapi.MemberOrderPageView;
 import org.example.kah.dto.publicapi.CreateOrderRequest;
 import org.example.kah.dto.publicapi.OrderCreatedResponse;
 import org.example.kah.dto.publicapi.OrderQueryView;
@@ -28,7 +28,7 @@ public interface OrderFacadeService {
      * @param request 查单请求
      * @return 匹配订单集合
      */
-    List<OrderQueryView> queryByContact(QueryOrdersRequest request);
+    java.util.List<OrderQueryView> queryByContact(QueryOrdersRequest request);
 
     /**
      * 查询当前会员已绑定订单。
@@ -36,5 +36,5 @@ public interface OrderFacadeService {
      * @param userId 会员主键
      * @return 已绑定订单集合
      */
-    List<OrderQueryView> listByUser(Long userId);
+    MemberOrderPageView listByUser(Long userId, int size, String cursor);
 }
