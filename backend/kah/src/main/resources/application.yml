@@ -73,6 +73,8 @@ mybatis:
     default-executor-type: REUSE
 
 shop:
+  bootstrap:
+    seed-demo-card-keys: false
   security:
     jwt:
       secret: "shop-demo-jwt-secret-key-please-change-this"

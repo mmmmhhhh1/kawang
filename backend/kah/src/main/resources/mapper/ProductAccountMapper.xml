@@ -132,7 +132,7 @@
             status, resource_type, card_key_ciphertext, card_key_digest, allocation_handle, sale_status, enable_status, used_status
         ) VALUES (
             #{productId}, #{accountNameMasked}, #{accountCiphertext}, #{secretCiphertext}, #{noteCiphertext}, #{accountDigest},
-            #{status}, #{resourceType}, #{cardKeyCiphertext}, #{cardKeyDigest}, #{allocationHandle}, #{saleStatus}, #{enableStatus}, #{usedStatus}
+            #{status}, #{resourceType}, #{cardKeyCiphertext}, #{cardKeyDigest}, #{allocationHandle}, #{saleStatus}, #{enableStatus}, COALESCE(#{usedStatus}, 'UNUSED')
         )
     </insert>
 

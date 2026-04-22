@@ -9,6 +9,7 @@ import org.example.kah.dto.admin.AdminNoticeStatusRequest;
 import org.example.kah.dto.admin.AdminNoticeView;
 import org.example.kah.service.NoticeService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,5 +48,11 @@ public class AdminNoticeController {
     @PatchMapping("/{id}/status")
     public ApiResponse<AdminNoticeView> updateStatus(@PathVariable Long id, @Valid @RequestBody AdminNoticeStatusRequest request) {
         return ApiResponse.success(noticeService.updateStatus(id, request.status()));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> delete(@PathVariable Long id) {
+        noticeService.delete(id);
+        return ApiResponse.success(null);
     }
 }

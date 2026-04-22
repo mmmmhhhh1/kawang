@@ -2,6 +2,7 @@ package org.example.kah.bootstrap;
 
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.example.kah.config.ShopBootstrapProperties;
 import org.example.kah.config.ShopSecurityProperties;
 import org.example.kah.entity.AccountStatus;
 import org.example.kah.entity.AdminStatus;
@@ -11,6 +12,7 @@ import org.example.kah.entity.ProductAccount;
 import org.example.kah.entity.ResourceType;
 import org.example.kah.entity.SaleStatus;
 import org.example.kah.entity.ShopProduct;
+import org.example.kah.entity.UsedStatus;
 import org.example.kah.mapper.AdminUserMapper;
 import org.example.kah.mapper.ProductAccountMapper;
 import org.example.kah.mapper.ProductMapper;
@@ -36,6 +38,7 @@ public class AdminBootstrapService implements ApplicationRunner {
     private final ProductAccountMapper productAccountMapper;
     private final PasswordEncoder passwordEncoder;
     private final ShopSecurityProperties securityProperties;
+    private final ShopBootstrapProperties bootstrapProperties;
     private final CryptoService cryptoService;
     private final ProductCacheRefreshService productCacheRefreshService;
     private final OrderReservationService orderReservationService;
@@ -46,7 +49,9 @@ public class AdminBootstrapService implements ApplicationRunner {
         syncAdminUser();
         productAccountMapper.normalizeLegacyPool();
         orderReservationService.backfillMissingAllocationHandles();
-        seedCardKeysIfNeeded();
+        if (bootstrapProperties.seedDemoCardKeys()) {
+            seedCardKeysIfNeeded();
+        }
         productMapper.syncStats();
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -101,6 +106,7 @@ public class AdminBootstrapService implements ApplicationRunner {
                 account.setAllocationHandle(AllocationHandleGenerator.newHandle());
                 account.setSaleStatus(SaleStatus.UNSOLD);
                 account.setEnableStatus(EnableStatus.ENABLED);
+                account.setUsedStatus(UsedStatus.UNUSED);
                 productAccountMapper.insert(account);
                 counter++;
             }

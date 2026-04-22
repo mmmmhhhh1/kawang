@@ -1,0 +1,10 @@
+.git
+.idea
+storage
+docs
+*.log
+*.png
+backend-run.err.log
+backend-run.out.log
+backend-live.err.log
+backend-live.out.log

@@ -8,6 +8,7 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Delete;
 import org.example.kah.entity.ShopNotice;
 
 @Mapper
@@ -71,4 +72,10 @@ public interface NoticeMapper {
             WHERE id = #{id}
             """)
     int updateStatus(@Param("id") Long id, @Param("status") String status);
+
+    @Delete("""
+            DELETE FROM shop_notice
+            WHERE id = #{id}
+            """)
+    int deleteById(@Param("id") Long id);
 }

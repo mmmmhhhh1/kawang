@@ -79,7 +79,7 @@ class ProductCacheServiceImplTest {
 
         service.refreshProductBase(11L);
 
-        verify(valueOperations).set(eq(ProductCacheConstants.baseDetailKey(11L)), eq("{}"), any(Duration.class));
+        verify(valueOperations).set(eq(ProductCacheConstants.baseDetailKey(11L)), eq("{}"));
         verify(stringRedisTemplate).delete(List.of(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY));
     }
 

@@ -17,4 +17,6 @@ public interface NoticeService {
     AdminNoticeView update(Long id, AdminNoticeSaveRequest request);
 
     AdminNoticeView updateStatus(Long id, String status);
+
+    void delete(Long id);
 }

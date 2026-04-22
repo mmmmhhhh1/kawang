@@ -87,6 +87,14 @@ public class NoticeServiceImpl extends AbstractCrudService<ShopNotice, Long> imp
     }
 
     @Override
+    @Transactional
+    public void delete(Long id) {
+        requireById(id);
+        noticeMapper.deleteById(id);
+        refreshPublishedNoticeCacheAfterCommit();
+    }
+
+    @Override
     protected ShopNotice findEntityById(Long id) {
         return noticeMapper.findById(id);
     }

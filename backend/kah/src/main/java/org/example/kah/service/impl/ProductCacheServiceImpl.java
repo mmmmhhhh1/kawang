@@ -1,5 +1,7 @@
 package org.example.kah.service.impl;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -24,8 +26,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -34,27 +36,53 @@ public class ProductCacheServiceImpl implements ProductCacheService {
 
     private static final Logger log = LoggerFactory.getLogger(ProductCacheServiceImpl.class);
     private static final int KEY_SCAN_BATCH_SIZE = 200;
+    private static final String ACTIVE_BASE_LIST_LOCAL_KEY = "active-base-list";
 
     private final StringRedisTemplate stringRedisTemplate;
     private final ProductCacheCodec productCacheCodec;
     private final ProductMapper productMapper;
     private final DistributedLockService distributedLockService;
     private final ShopMetricsService shopMetricsService;
+    private final Cache<String, List<ProductBaseCacheItem>> activeProductBaseListLocalCache = Caffeine.newBuilder()
+            .maximumSize(1)
+            .expireAfterWrite(ProductCacheConstants.BASE_LOCAL_CACHE_TTL)
+            .build();
+    private final Cache<Long, ProductBaseCacheItem> activeProductBaseLocalCache = Caffeine.newBuilder()
+            .maximumSize(ProductCacheConstants.BASE_LOCAL_CACHE_MAXIMUM_SIZE)
+            .expireAfterWrite(ProductCacheConstants.BASE_LOCAL_CACHE_TTL)
+            .build();
+    private final Cache<Long, ProductStatsCacheItem> productStatsLocalCache = Caffeine.newBuilder()
+            .maximumSize(ProductCacheConstants.STATS_LOCAL_CACHE_MAXIMUM_SIZE)
+            .expireAfterWrite(ProductCacheConstants.STATS_LOCAL_CACHE_TTL)
+            .build();
 
     @Override
     public List<ProductBaseCacheItem> getActiveProductBases() {
+        List<ProductBaseCacheItem> localCached = activeProductBaseListLocalCache.getIfPresent(ACTIVE_BASE_LIST_LOCAL_KEY);
+        if (localCached != null) {
+            shopMetricsService.recordProductBaseCacheHit();
+            return localCached;
+        }
+
         try {
             String cached = stringRedisTemplate.opsForValue().get(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
             if (cached != null) {
                 shopMetricsService.recordProductBaseCacheHit();
-                return parseCachedValue(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, cached, productCacheCodec::parseBaseList);
+                List<ProductBaseCacheItem> parsed = parseCachedValue(
+                        ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY,
+                        cached,
+                        productCacheCodec::parseBaseList);
+                cacheActiveBaseListLocally(parsed);
+                return parsed;
             }
             shopMetricsService.recordProductBaseCacheMiss();
             return rebuildActiveBaseListWithMutex();
         } catch (Exception exception) {
             shopMetricsService.recordProductBaseCacheFallback();
-            log.warn("读取活动商品基础缓存失败，回退数据库查询", exception);
-            return loadActiveProductBasesFromDb();
+            log.warn("Failed to read active product base list from cache, falling back to database", exception);
+            List<ProductBaseCacheItem> loaded = loadActiveProductBasesFromDb();
+            cacheActiveBaseListLocally(loaded);
+            return loaded;
         }
     }
 
@@ -63,18 +91,36 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return null;
         }
+
+        ProductBaseCacheItem localCached = activeProductBaseLocalCache.getIfPresent(productId);
+        if (localCached != null) {
+            shopMetricsService.recordProductBaseCacheHit();
+            return localCached;
+        }
+
         try {
             String cached = stringRedisTemplate.opsForValue().get(ProductCacheConstants.baseDetailKey(productId));
             if (cached != null) {
                 shopMetricsService.recordProductBaseCacheHit();
-                return parseCachedValue(ProductCacheConstants.baseDetailKey(productId), cached, productCacheCodec::parseBaseDetail);
+                ProductBaseCacheItem parsed = parseCachedValue(
+                        ProductCacheConstants.baseDetailKey(productId),
+                        cached,
+                        productCacheCodec::parseBaseDetail);
+                if (parsed != null) {
+                    activeProductBaseLocalCache.put(productId, parsed);
+                }
+                return parsed;
             }
             shopMetricsService.recordProductBaseCacheMiss();
             return rebuildBaseDetailWithMutex(productId);
         } catch (Exception exception) {
             shopMetricsService.recordProductBaseCacheFallback();
-            log.warn("读取商品基础缓存失败，回退数据库查询，productId={}", productId, exception);
-            return loadActiveProductBaseFromDb(productId);
+            log.warn("Failed to read product base from cache, falling back to database, productId={}", productId, exception);
+            ProductBaseCacheItem loaded = loadActiveProductBaseFromDb(productId);
+            if (loaded != null) {
+                activeProductBaseLocalCache.put(productId, loaded);
+            }
+            return loaded;
         }
     }
 
@@ -85,28 +131,52 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             return Map.of();
         }
 
+        Map<Long, ProductStatsCacheItem> result = new LinkedHashMap<>();
+        List<Long> redisLookupIds = new ArrayList<>();
+        int localHitCount = 0;
+
+        for (Long productId : normalizedIds) {
+            ProductStatsCacheItem localCached = productStatsLocalCache.getIfPresent(productId);
+            if (localCached != null) {
+                result.put(productId, localCached);
+                localHitCount++;
+            } else {
+                redisLookupIds.add(productId);
+            }
+        }
+
+        if (localHitCount > 0) {
+            shopMetricsService.recordProductStatsCacheHit(localHitCount);
+        }
+        if (redisLookupIds.isEmpty()) {
+            return result;
+        }
+
         try {
-            List<String> keys = normalizedIds.stream().map(ProductCacheConstants::statsKey).toList();
+            List<String> keys = redisLookupIds.stream().map(ProductCacheConstants::statsKey).toList();
             List<String> cachedValues = stringRedisTemplate.opsForValue().multiGet(keys);
-            Map<Long, ProductStatsCacheItem> result = new LinkedHashMap<>();
             List<Long> missingIds = new ArrayList<>();
             int hitCount = 0;
-            for (int index = 0; index < normalizedIds.size(); index++) {
-                Long productId = normalizedIds.get(index);
+
+            for (int index = 0; index < redisLookupIds.size(); index++) {
+                Long productId = redisLookupIds.get(index);
                 String key = ProductCacheConstants.statsKey(productId);
                 String cached = cachedValues == null ? null : cachedValues.get(index);
                 if (cached == null) {
                     missingIds.add(productId);
                     continue;
                 }
+
                 ProductStatsCacheItem item = parseCachedValue(key, cached, productCacheCodec::parseStats);
                 if (item == null) {
                     missingIds.add(productId);
                 } else {
                     result.put(productId, item);
+                    productStatsLocalCache.put(productId, item);
                     hitCount++;
                 }
             }
+
             if (hitCount > 0) {
                 shopMetricsService.recordProductStatsCacheHit(hitCount);
             }
@@ -125,8 +195,10 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             return result;
         } catch (Exception exception) {
             shopMetricsService.recordProductStatsCacheFallback(normalizedIds.size());
-            log.warn("批量读取商品统计缓存失败，回退数据库查询", exception);
-            return loadStatsMapFromDb(normalizedIds);
+            log.warn("Failed to read product stats in batch from cache, falling back to database", exception);
+            Map<Long, ProductStatsCacheItem> loaded = loadStatsMapFromDb(normalizedIds);
+            loaded.forEach(productStatsLocalCache::put);
+            return loaded;
         }
     }
 
@@ -135,19 +207,34 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return null;
         }
+
+        ProductStatsCacheItem localCached = productStatsLocalCache.getIfPresent(productId);
+        if (localCached != null) {
+            shopMetricsService.recordProductStatsCacheHit(1);
+            return localCached;
+        }
+
         try {
             String key = ProductCacheConstants.statsKey(productId);
             String cached = stringRedisTemplate.opsForValue().get(key);
             if (cached != null) {
                 shopMetricsService.recordProductStatsCacheHit(1);
-                return parseCachedValue(key, cached, productCacheCodec::parseStats);
+                ProductStatsCacheItem parsed = parseCachedValue(key, cached, productCacheCodec::parseStats);
+                if (parsed != null) {
+                    productStatsLocalCache.put(productId, parsed);
+                }
+                return parsed;
             }
             shopMetricsService.recordProductStatsCacheMiss(1);
             return rebuildStatsWithMutex(productId);
         } catch (Exception exception) {
             shopMetricsService.recordProductStatsCacheFallback(1);
-            log.warn("读取商品统计缓存失败，回退数据库查询，productId={}", productId, exception);
-            return loadProductStatsFromDb(productId);
+            log.warn("Failed to read product stats from cache, falling back to database, productId={}", productId, exception);
+            ProductStatsCacheItem loaded = loadProductStatsFromDb(productId);
+            if (loaded != null) {
+                productStatsLocalCache.put(productId, loaded);
+            }
+            return loaded;
         }
     }
 
@@ -156,17 +243,21 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return;
         }
+
         ShopProduct product = productMapper.findById(productId);
         if (product == null || !ProductStatus.ACTIVE.equals(product.getStatus())) {
             safeSet(ProductCacheConstants.baseDetailKey(productId), ProductCacheConstants.NULL_MARKER, nullCacheTtl());
+            activeProductBaseLocalCache.invalidate(productId);
+            activeProductBaseListLocalCache.invalidate(ACTIVE_BASE_LIST_LOCAL_KEY);
             evictProductStats(productId);
             safeDelete(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
             return;
         }
-        safeSet(
-                ProductCacheConstants.baseDetailKey(productId),
-                productCacheCodec.toJson(toBaseItem(product)),
-                baseCacheTtl());
+
+        ProductBaseCacheItem baseItem = toBaseItem(product);
+        safeSetPersistent(ProductCacheConstants.baseDetailKey(productId), productCacheCodec.toJson(baseItem));
+        activeProductBaseLocalCache.put(productId, baseItem);
+        activeProductBaseListLocalCache.invalidate(ACTIVE_BASE_LIST_LOCAL_KEY);
         safeDelete(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
     }
 
@@ -175,12 +266,16 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return;
         }
+
         ProductStatsCacheItem item = loadProductStatsFromDb(productId);
         if (item == null) {
             safeSet(ProductCacheConstants.statsKey(productId), ProductCacheConstants.NULL_MARKER, nullCacheTtl());
+            productStatsLocalCache.invalidate(productId);
             return;
         }
+
         safeSet(ProductCacheConstants.statsKey(productId), productCacheCodec.toJson(item), statsCacheTtl());
+        productStatsLocalCache.put(productId, item);
     }
 
     @Override
@@ -188,6 +283,9 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return;
         }
+
+        activeProductBaseLocalCache.invalidate(productId);
+        activeProductBaseListLocalCache.invalidate(ACTIVE_BASE_LIST_LOCAL_KEY);
         safeDelete(ProductCacheConstants.baseDetailKey(productId), ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
     }
 
@@ -196,6 +294,8 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return;
         }
+
+        productStatsLocalCache.invalidate(productId);
         safeDelete(ProductCacheConstants.statsKey(productId));
     }
 
@@ -204,7 +304,11 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         if (!LongIdUtils.isPositive(productId)) {
             return;
         }
+
         safeSet(ProductCacheConstants.baseDetailKey(productId), ProductCacheConstants.NULL_MARKER, nullCacheTtl());
+        activeProductBaseLocalCache.invalidate(productId);
+        activeProductBaseListLocalCache.invalidate(ACTIVE_BASE_LIST_LOCAL_KEY);
+        productStatsLocalCache.invalidate(productId);
         safeDelete(ProductCacheConstants.statsKey(productId), ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
     }
 
@@ -212,17 +316,19 @@ public class ProductCacheServiceImpl implements ProductCacheService {
     public void clearAllProductCaches() {
         try {
             deleteKeysByPattern(ProductCacheConstants.PRODUCT_CACHE_KEY_PREFIX + "*");
+            activeProductBaseListLocalCache.invalidateAll();
+            activeProductBaseLocalCache.invalidateAll();
+            productStatsLocalCache.invalidateAll();
         } catch (Exception exception) {
-            log.warn("清理全部商品缓存失败", exception);
+            log.warn("Failed to clear all product caches", exception);
         }
     }
 
     @Override
     public void warmupActiveProductBases() {
-        safeSet(
-                ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY,
-                productCacheCodec.toJson(loadActiveProductBasesFromDb()),
-                baseCacheTtl());
+        List<ProductBaseCacheItem> loaded = loadActiveProductBasesFromDb();
+        safeSetPersistent(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, productCacheCodec.toJson(loaded));
+        cacheActiveBaseListLocally(loaded);
     }
 
     private List<ProductBaseCacheItem> rebuildActiveBaseListWithMutex() {
@@ -231,10 +337,17 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             try {
                 String rechecked = stringRedisTemplate.opsForValue().get(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY);
                 if (rechecked != null) {
-                    return parseCachedValue(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, rechecked, productCacheCodec::parseBaseList);
+                    List<ProductBaseCacheItem> parsed = parseCachedValue(
+                            ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY,
+                            rechecked,
+                            productCacheCodec::parseBaseList);
+                    cacheActiveBaseListLocally(parsed);
+                    return parsed;
                 }
+
                 List<ProductBaseCacheItem> loaded = loadActiveProductBasesFromDb();
-                safeSet(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, productCacheCodec.toJson(loaded), baseCacheTtl());
+                safeSetPersistent(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, productCacheCodec.toJson(loaded));
+                cacheActiveBaseListLocally(loaded);
                 shopMetricsService.recordProductBaseCacheRebuild();
                 return loaded;
             } finally {
@@ -245,7 +358,14 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         List<ProductBaseCacheItem> waited = waitForCacheValue(
                 ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY,
                 cached -> parseCachedValue(ProductCacheConstants.ACTIVE_PRODUCT_BASE_LIST_KEY, cached, productCacheCodec::parseBaseList));
-        return waited != null ? waited : loadActiveProductBasesFromDb();
+        if (waited != null) {
+            cacheActiveBaseListLocally(waited);
+            return waited;
+        }
+
+        List<ProductBaseCacheItem> loaded = loadActiveProductBasesFromDb();
+        cacheActiveBaseListLocally(loaded);
+        return loaded;
     }
 
     private ProductBaseCacheItem rebuildBaseDetailWithMutex(Long productId) {
@@ -256,13 +376,19 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             try {
                 String rechecked = stringRedisTemplate.opsForValue().get(cacheKey);
                 if (rechecked != null) {
-                    return parseCachedValue(cacheKey, rechecked, productCacheCodec::parseBaseDetail);
+                    ProductBaseCacheItem parsed = parseCachedValue(cacheKey, rechecked, productCacheCodec::parseBaseDetail);
+                    if (parsed != null) {
+                        activeProductBaseLocalCache.put(productId, parsed);
+                    }
+                    return parsed;
                 }
+
                 ProductBaseCacheItem loaded = loadActiveProductBaseFromDb(productId);
                 if (loaded == null) {
                     safeSet(cacheKey, ProductCacheConstants.NULL_MARKER, nullCacheTtl());
                 } else {
-                    safeSet(cacheKey, productCacheCodec.toJson(loaded), baseCacheTtl());
+                    safeSetPersistent(cacheKey, productCacheCodec.toJson(loaded));
+                    activeProductBaseLocalCache.put(productId, loaded);
                 }
                 shopMetricsService.recordProductBaseCacheRebuild();
                 return loaded;
@@ -274,7 +400,16 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         ProductBaseCacheItem waited = waitForCacheValue(
                 cacheKey,
                 cached -> parseCachedValue(cacheKey, cached, productCacheCodec::parseBaseDetail));
-        return waited != null ? waited : loadActiveProductBaseFromDb(productId);
+        if (waited != null) {
+            activeProductBaseLocalCache.put(productId, waited);
+            return waited;
+        }
+
+        ProductBaseCacheItem loaded = loadActiveProductBaseFromDb(productId);
+        if (loaded != null) {
+            activeProductBaseLocalCache.put(productId, loaded);
+        }
+        return loaded;
     }
 
     private ProductStatsCacheItem rebuildStatsWithMutex(Long productId) {
@@ -285,13 +420,19 @@ public class ProductCacheServiceImpl implements ProductCacheService {
             try {
                 String rechecked = stringRedisTemplate.opsForValue().get(cacheKey);
                 if (rechecked != null) {
-                    return parseCachedValue(cacheKey, rechecked, productCacheCodec::parseStats);
+                    ProductStatsCacheItem parsed = parseCachedValue(cacheKey, rechecked, productCacheCodec::parseStats);
+                    if (parsed != null) {
+                        productStatsLocalCache.put(productId, parsed);
+                    }
+                    return parsed;
                 }
+
                 ProductStatsCacheItem loaded = loadProductStatsFromDb(productId);
                 if (loaded == null) {
                     safeSet(cacheKey, ProductCacheConstants.NULL_MARKER, nullCacheTtl());
                 } else {
                     safeSet(cacheKey, productCacheCodec.toJson(loaded), statsCacheTtl());
+                    productStatsLocalCache.put(productId, loaded);
                 }
                 shopMetricsService.recordProductStatsCacheRebuild();
                 return loaded;
@@ -303,7 +444,16 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         ProductStatsCacheItem waited = waitForCacheValue(
                 cacheKey,
                 cached -> parseCachedValue(cacheKey, cached, productCacheCodec::parseStats));
-        return waited != null ? waited : loadProductStatsFromDb(productId);
+        if (waited != null) {
+            productStatsLocalCache.put(productId, waited);
+            return waited;
+        }
+
+        ProductStatsCacheItem loaded = loadProductStatsFromDb(productId);
+        if (loaded != null) {
+            productStatsLocalCache.put(productId, loaded);
+        }
+        return loaded;
     }
 
     private Map<Long, ProductStatsCacheItem> rebuildMissingStatsBatch(List<Long> productIds) {
@@ -317,6 +467,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 continue;
             }
             safeSet(cacheKey, productCacheCodec.toJson(item), statsCacheTtl());
+            productStatsLocalCache.put(productId, item);
             result.put(productId, item);
         }
         shopMetricsService.recordProductStatsCacheRebuild(productIds.size());
@@ -391,7 +542,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                     ProductCacheConstants.CACHE_REBUILD_WAIT_TIMEOUT,
                     ProductCacheConstants.CACHE_REBUILD_LEASE_DURATION);
         } catch (Exception exception) {
-            log.warn("获取商品缓存重建锁失败，lockKey={}", lockKey, exception);
+            log.warn("Failed to acquire product cache rebuild lock, lockKey={}", lockKey, exception);
             return null;
         }
     }
@@ -400,7 +551,15 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         try {
             stringRedisTemplate.opsForValue().set(key, value, ttl);
         } catch (Exception exception) {
-            log.warn("写入商品缓存失败，key={}", key, exception);
+            log.warn("Failed to write product cache entry, key={}", key, exception);
+        }
+    }
+
+    private void safeSetPersistent(String key, String value) {
+        try {
+            stringRedisTemplate.opsForValue().set(key, value);
+        } catch (Exception exception) {
+            log.warn("Failed to write persistent product cache entry, key={}", key, exception);
         }
     }
 
@@ -411,7 +570,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         try {
             stringRedisTemplate.delete(List.of(keys));
         } catch (Exception exception) {
-            log.warn("删除商品缓存失败，keys={}", List.of(keys), exception);
+            log.warn("Failed to delete product cache entries, keys={}", List.of(keys), exception);
         }
     }
 
@@ -428,7 +587,7 @@ public class ProductCacheServiceImpl implements ProductCacheService {
                 }
                 deleteRawKeys(connection, batch);
             } catch (Exception exception) {
-                throw new IllegalStateException("扫描并删除 Redis 键失败", exception);
+                throw new IllegalStateException("Failed to scan and delete Redis keys", exception);
             }
             return null;
         });
@@ -442,16 +601,19 @@ public class ProductCacheServiceImpl implements ProductCacheService {
         batch.clear();
     }
 
-    private Duration baseCacheTtl() {
-        return CacheTtlUtils.withJitter(ProductCacheConstants.BASE_CACHE_TTL, ProductCacheConstants.BASE_CACHE_JITTER);
-    }
-
     private Duration statsCacheTtl() {
         return CacheTtlUtils.withJitter(ProductCacheConstants.STATS_CACHE_TTL, ProductCacheConstants.STATS_CACHE_JITTER);
     }
 
     private Duration nullCacheTtl() {
         return CacheTtlUtils.withJitter(ProductCacheConstants.NULL_CACHE_TTL, ProductCacheConstants.NULL_CACHE_JITTER);
+    }
+
+    private void cacheActiveBaseListLocally(List<ProductBaseCacheItem> items) {
+        activeProductBaseListLocalCache.put(ACTIVE_BASE_LIST_LOCAL_KEY, items);
+        for (ProductBaseCacheItem item : items) {
+            activeProductBaseLocalCache.put(item.id(), item);
+        }
     }
 
     private void sleepBriefly() {
