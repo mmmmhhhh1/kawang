@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.SupportMessageMapper">
+
+    <sql id="columns">
+        id, session_id, sender_scope, sender_id, message_type, content,
+        attachment_path, attachment_name, attachment_content_type, attachment_size, created_at
+    </sql>
+
+    <insert id="insert" parameterType="org.example.kah.entity.SupportMessage" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO support_message (
+            session_id, sender_scope, sender_id, message_type, content,
+            attachment_path, attachment_name, attachment_content_type, attachment_size, created_at
+        ) VALUES (
+            #{sessionId}, #{senderScope}, #{senderId}, #{messageType}, #{content},
+            #{attachmentPath}, #{attachmentName}, #{attachmentContentType}, #{attachmentSize}, #{createdAt}
+        )
+    </insert>
+
+    <select id="findById" resultType="org.example.kah.entity.SupportMessage">
+        SELECT <include refid="columns" />
+        FROM support_message
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findSessionCursorPage" resultType="org.example.kah.entity.SupportMessage">
+        SELECT <include refid="columns" />
+        FROM support_message
+        WHERE session_id = #{sessionId}
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (
+                created_at &lt; #{cursorCreatedAt}
+                OR (created_at = #{cursorCreatedAt} AND id &lt; #{cursorId})
+            )
+        </if>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findSessionAfterCursorPage" resultType="org.example.kah.entity.SupportMessage">
+        SELECT <include refid="columns" />
+        FROM support_message
+        WHERE session_id = #{sessionId}
+        <if test="afterCreatedAt != null and afterId != null">
+            AND (
+                created_at &gt; #{afterCreatedAt}
+                OR (created_at = #{afterCreatedAt} AND id &gt; #{afterId})
+            )
+        </if>
+        ORDER BY created_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findByIdWithSession" resultType="org.example.kah.entity.SupportMessage">
+        SELECT <include refid="columns" />
+        FROM support_message
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+</mapper>

@@ -11,9 +11,13 @@ import org.springframework.stereotype.Component;
 public class AsyncTaskSupport {
 
     private final Executor ioTaskExecutor;
+    private final Executor realtimeTaskExecutor;
 
-    public AsyncTaskSupport(@Qualifier("ioTaskExecutor") Executor ioTaskExecutor) {
+    public AsyncTaskSupport(
+            @Qualifier("ioTaskExecutor") Executor ioTaskExecutor,
+            @Qualifier("realtimeTaskExecutor") Executor realtimeTaskExecutor) {
         this.ioTaskExecutor = ioTaskExecutor;
+        this.realtimeTaskExecutor = realtimeTaskExecutor;
     }
 
     public CompletableFuture<Void> runAsync(Runnable action) {
@@ -22,6 +26,10 @@ public class AsyncTaskSupport {
 
     public <T> CompletableFuture<T> supplyAsync(Supplier<T> supplier) {
         return CompletableFuture.supplyAsync(supplier, ioTaskExecutor);
+    }
+
+    public CompletableFuture<Void> runRealtimeAsync(Runnable action) {
+        return CompletableFuture.runAsync(action, realtimeTaskExecutor);
     }
 
     public <T> T join(CompletableFuture<T> future) {

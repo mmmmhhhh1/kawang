@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Bell, CreditCard, MagicStick, WalletFilled } from '@element-plus/icons-vue'
+import { CreditCard, WalletFilled } from '@element-plus/icons-vue'
 import {
   createRecharge,
   fetchMemberProfile,
@@ -166,6 +166,10 @@ function openRechargeDialog() {
   rechargeVisible.value = true
 }
 
+function openSupportChat() {
+  window.dispatchEvent(new CustomEvent('support-chat:open'))
+}
+
 function handleFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   screenshotFile.value = target.files?.[0] ?? null
@@ -192,7 +196,7 @@ async function submitRecharge() {
   rechargeSubmitting.value = true
   try {
     await createRecharge(formData)
-    ElMessage.success('充值申请已提交，请等待后台审核')
+    ElMessage.success('充值申请已提交')
     rechargeVisible.value = false
     resetRechargePaging()
     await loadRecharges(null)
@@ -215,24 +219,20 @@ onMounted(async () => {
     <section class="section-shell member-hero page-reveal" :style="{ '--delay': '0.04s' }">
       <div class="member-hero__copy">
         <span class="section-kicker">会员中心</span>
-        <h1>余额、订单、卡密与充值审核，都收在一个地方。</h1>
-        <p>
-          现在的会员中心不再只是订单列表，而是把你的资金状态、购买记录和充值进度整合成一套真正可读的界面。
-        </p>
+        <h1>我的账户</h1>
       </div>
 
       <div class="member-hero__profile">
         <div class="member-hero__identity">
           <span class="soft-chip">
             <el-icon><WalletFilled /></el-icon>
-            当前账号
+            当前账户
           </span>
           <strong>{{ displayUsername || displayEmail || '会员账号' }}</strong>
-          <p>{{ displayEmail || '已绑定会员中心，可统一查看所有当前订单记录。' }}</p>
         </div>
         <button class="hero-action member-hero__recharge" type="button" @click="openRechargeDialog">
           <el-icon><CreditCard /></el-icon>
-          立即充值
+          充值
         </button>
       </div>
     </section>
@@ -240,31 +240,30 @@ onMounted(async () => {
     <section class="section-shell page-reveal" :style="{ '--delay': '0.08s' }">
       <div class="section-heading">
         <div>
-          <span class="section-kicker">资产总览</span>
-          <h2>当前账号状态</h2>
+          <span class="section-kicker">总览</span>
+          <h2>账户状态</h2>
         </div>
-        <p>余额仍然展示全量状态，订单数量、购买数量、总金额和发放数量会基于后端汇总接口返回，不受分页影响。</p>
       </div>
 
       <div class="summary-grid">
         <article class="summary-card is-balance">
-          <span>当前余额</span>
+          <span>余额</span>
           <strong>{{ formatCurrency(balance) }}</strong>
         </article>
         <article class="summary-card">
-          <span>订单数量</span>
+          <span>订单</span>
           <strong>{{ orderSummary.orderCount }}</strong>
         </article>
         <article class="summary-card">
-          <span>购买总数</span>
+          <span>数量</span>
           <strong>{{ totalQuantity }}</strong>
         </article>
         <article class="summary-card">
-          <span>累计金额</span>
+          <span>金额</span>
           <strong>{{ formatCurrency(totalAmount) }}</strong>
         </article>
         <article class="summary-card">
-          <span>卡密数量</span>
+          <span>卡密</span>
           <strong>{{ totalCardKeys }}</strong>
         </article>
       </div>
@@ -273,10 +272,9 @@ onMounted(async () => {
     <section class="section-shell page-reveal" :style="{ '--delay': '0.12s' }">
       <div class="section-heading">
         <div>
-          <span class="section-kicker">订单记录</span>
-          <h2>已绑定到账号的订单</h2>
+          <span class="section-kicker">订单</span>
+          <h2>订单记录</h2>
         </div>
-        <p>所有当前会员流程下生成的订单都会自动进入这里。现在改成每页 {{ ORDER_PAGE_SIZE }} 条，避免记录太多时页面过长。</p>
       </div>
 
       <el-skeleton :loading="loading" animated :rows="6">
@@ -307,22 +305,22 @@ onMounted(async () => {
                 <strong>{{ formatCurrency(order.totalAmount) }}</strong>
               </div>
               <div>
-                <span>下单时间</span>
+                <span>时间</span>
                 <strong>{{ formatDateTime(order.createdAt) }}</strong>
               </div>
             </div>
 
             <button class="surface-button member-order-card__detail" type="button" @click="openOrderDetail(order)">
-              查看详情
+              详情
             </button>
           </article>
         </div>
 
-        <el-empty v-else description="暂时还没有订单记录" />
+        <el-empty v-else description="暂无订单" />
       </el-skeleton>
 
       <div class="record-pager">
-        <span>第 {{ orderPageIndex }} 页，每页 {{ ORDER_PAGE_SIZE }} 条</span>
+        <span>第 {{ orderPageIndex }} 页</span>
         <div class="record-pager__actions">
           <el-button :disabled="orderPageIndex <= 1 || loading" @click="prevOrderPage">上一页</el-button>
           <el-button :disabled="!orderHasMore || loading" @click="nextOrderPage">下一页</el-button>
@@ -333,10 +331,9 @@ onMounted(async () => {
     <section class="section-shell page-reveal" :style="{ '--delay': '0.16s' }">
       <div class="section-heading">
         <div>
-          <span class="section-kicker">充值审核</span>
-          <h2>充值申请与审核记录</h2>
+          <span class="section-kicker">充值</span>
+          <h2>充值记录</h2>
         </div>
-        <p>提交充值申请后，这里会显示审核状态与结果。现在也改成分页展示，避免记录太多时拉得很长。</p>
       </div>
 
       <div v-if="recharges.length" class="recharge-list">
@@ -359,7 +356,7 @@ onMounted(async () => {
               <strong>{{ formatCurrency(item.amount) }}</strong>
             </div>
             <div>
-              <span>付款备注</span>
+              <span>备注</span>
               <strong>{{ item.payerRemark || '-' }}</strong>
             </div>
             <div>
@@ -367,13 +364,13 @@ onMounted(async () => {
               <strong>{{ item.reviewedAt ? formatDateTime(item.reviewedAt) : '-' }}</strong>
             </div>
           </div>
-          <p v-if="item.rejectReason" class="recharge-card__reject">拒绝原因：{{ item.rejectReason }}</p>
+          <p v-if="item.rejectReason" class="recharge-card__reject">{{ item.rejectReason }}</p>
         </article>
       </div>
-      <el-empty v-else description="暂时还没有充值记录" />
+      <el-empty v-else description="暂无充值记录" />
 
       <div class="record-pager">
-        <span>第 {{ rechargePageIndex }} 页，每页 {{ RECHARGE_PAGE_SIZE }} 条</span>
+        <span>第 {{ rechargePageIndex }} 页</span>
         <div class="record-pager__actions">
           <el-button :disabled="rechargePageIndex <= 1 || rechargeLoading" @click="prevRechargePage">上一页</el-button>
           <el-button :disabled="!rechargeHasMore || rechargeLoading" @click="nextRechargePage">下一页</el-button>
@@ -381,56 +378,22 @@ onMounted(async () => {
       </div>
     </section>
 
-    <section class="member-tips page-reveal" :style="{ '--delay': '0.2s' }">
-      <article class="glass-card member-tip-card">
-        <span class="section-chip">
-          <el-icon><WalletFilled /></el-icon>
-          余额支付
-        </span>
-        <p>当前前台购买统一使用余额支付。充值审核通过后，余额会自动增加到你的账号里。</p>
-      </article>
-
-      <article class="glass-card member-tip-card">
-        <span class="section-chip">
-          <el-icon><Bell /></el-icon>
-          实时审核
-        </span>
-        <p>充值申请会实时推送到后台管理端，管理员审核后，这里的状态也会同步刷新。</p>
-      </article>
-
-      <article class="glass-card member-tip-card">
-        <span class="section-chip">
-          <el-icon><MagicStick /></el-icon>
-          统一归档
-        </span>
-        <p>后续所有新订单都围绕会员体系整理，不再混入旧版兼容入口或历史引导。</p>
-      </article>
-    </section>
-
-    <el-dialog v-model="rechargeVisible" width="min(960px, 94vw)" title="余额充值申请">
+    <el-dialog v-model="rechargeVisible" width="min(960px, 94vw)" title="充值">
       <div class="recharge-dialog">
         <div class="recharge-dialog__qr">
-          <span class="soft-chip">支付宝收款码</span>
+          <span class="soft-chip">收款码</span>
           <div class="recharge-dialog__qr-card">
             <img :src="alipayQrUrl" alt="支付宝收款码" />
           </div>
-          <p>请先完成转账，再上传付款截图提交审核。审核通过后，余额会自动入账。</p>
         </div>
 
         <div class="recharge-dialog__form">
           <el-form label-position="top">
             <el-form-item label="充值金额">
-              <el-input v-model="rechargeForm.amount" placeholder="请输入充值金额，例如 100" />
+              <el-input v-model="rechargeForm.amount" />
             </el-form-item>
-            <el-form-item label="付款备注或流水号">
-              <el-input
-                v-model="rechargeForm.payerRemark"
-                type="textarea"
-                :rows="4"
-                maxlength="200"
-                show-word-limit
-                placeholder="可以填写付款昵称、转账流水号或其他备注"
-              />
+            <el-form-item label="备注">
+              <el-input v-model="rechargeForm.payerRemark" type="textarea" :rows="4" maxlength="200" show-word-limit />
             </el-form-item>
             <el-form-item label="付款截图">
               <input class="recharge-file-input" type="file" accept="image/*" @change="handleFileChange" />
@@ -442,7 +405,7 @@ onMounted(async () => {
 
       <template #footer>
         <el-button @click="rechargeVisible = false">取消</el-button>
-        <el-button type="primary" :loading="rechargeSubmitting" @click="submitRecharge">提交申请</el-button>
+        <el-button type="primary" :loading="rechargeSubmitting" @click="submitRecharge">提交</el-button>
       </template>
     </el-dialog>
 
@@ -480,8 +443,8 @@ onMounted(async () => {
 
         <div class="member-order-card__keys">
           <div class="member-order-card__keys-head">
-            <strong>卡密列表</strong>
-            <span class="ghost-pill">{{ selectedOrder.cardKeys?.length ?? 0 }} 条</span>
+            <strong>卡密</strong>
+            <span class="ghost-pill">{{ selectedOrder.cardKeys?.length ?? 0 }}</span>
           </div>
 
           <div v-if="selectedOrder.cardKeys?.length" class="card-key-list">
@@ -492,7 +455,7 @@ onMounted(async () => {
               </span>
             </div>
           </div>
-          <div v-else class="card-key-empty">当前订单还没有可展示的卡密。</div>
+          <div v-else class="card-key-empty">暂无卡密</div>
         </div>
       </div>
     </el-dialog>
@@ -518,13 +481,6 @@ onMounted(async () => {
   line-height: 1.06;
 }
 
-.member-hero__copy p {
-  margin: 0;
-  max-width: 640px;
-  color: var(--text-secondary);
-  line-height: 1.9;
-}
-
 .member-hero__profile {
   padding: 24px;
   border-radius: 28px;
@@ -535,20 +491,10 @@ onMounted(async () => {
   box-shadow: 0 22px 54px rgba(108, 85, 135, 0.14);
 }
 
-.member-hero__identity strong,
-.member-hero__identity p {
-  display: block;
-}
-
 .member-hero__identity strong {
+  display: block;
   margin-top: 14px;
   font-size: 28px;
-}
-
-.member-hero__identity p {
-  margin: 10px 0 0;
-  color: var(--text-secondary);
-  line-height: 1.82;
 }
 
 .member-hero__recharge {
@@ -558,7 +504,6 @@ onMounted(async () => {
 
 .summary-grid,
 .member-orders-grid,
-.member-tips,
 .recharge-list {
   display: grid;
   gap: 16px;
@@ -678,10 +623,6 @@ onMounted(async () => {
   grid-template-columns: minmax(220px, 1.1fr) minmax(0, 1.6fr);
 }
 
-.recharge-card__top {
-  align-items: center;
-}
-
 .member-order-card__keys {
   padding-top: 18px;
   border-top: 1px solid rgba(235, 218, 230, 0.84);
@@ -750,16 +691,6 @@ onMounted(async () => {
   grid-column: 1 / -1;
 }
 
-.member-tips {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.member-tip-card p {
-  margin: 16px 0 0;
-  color: var(--text-secondary);
-  line-height: 1.85;
-}
-
 .recharge-dialog {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);
@@ -789,12 +720,6 @@ onMounted(async () => {
   width: 100%;
   border-radius: 16px;
   object-fit: contain;
-}
-
-.recharge-dialog__qr p {
-  margin: 14px 0 0;
-  color: var(--text-secondary);
-  line-height: 1.8;
 }
 
 .order-detail-dialog {
@@ -845,8 +770,7 @@ onMounted(async () => {
 
 @media (max-width: 980px) {
   .member-hero,
-  .recharge-dialog,
-  .member-tips {
+  .recharge-dialog {
     grid-template-columns: 1fr;
   }
 }

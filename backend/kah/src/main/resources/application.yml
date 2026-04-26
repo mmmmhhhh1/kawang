@@ -5,10 +5,10 @@ server:
     min-response-size: 1024
   tomcat:
     threads:
-      max: 400
-      min-spare: 32
-    accept-count: 2000
-    max-connections: 8192
+      max: 600
+      min-spare: 64
+    accept-count: 5000
+    max-connections: 32768
     connection-timeout: 5s
 
 spring:
@@ -47,6 +47,10 @@ spring:
           max-idle: 16
           min-idle: 4
           max-wait: 3s
+  servlet:
+    multipart:
+      max-file-size: 1000MB
+      max-request-size: 1200MB
   mail:
     host: smtp.qq.com
     port: 465
@@ -80,11 +84,19 @@ shop:
       secret: "shop-demo-jwt-secret-key-please-change-this"
       expire-hours: 12
     admin:
-      username: admin
-      password: Admin@123456
+      username: aaa
+      password: 123456
       display-name: Super Admin
   crypto:
     aes-key: "shop-demo-aes-key-please-change-this"
+  push:
+    huawei:
+      enabled: ${SHOP_PUSH_HUAWEI_ENABLED:false}
+      app-id: ${SHOP_PUSH_HUAWEI_APP_ID:}
+      client-id: ${SHOP_PUSH_HUAWEI_CLIENT_ID:}
+      client-secret: ${SHOP_PUSH_HUAWEI_CLIENT_SECRET:}
+      token-url: ${SHOP_PUSH_HUAWEI_TOKEN_URL:https://oauth-login.cloud.huawei.com/oauth2/v3/token}
+      api-base-url: ${SHOP_PUSH_HUAWEI_API_BASE_URL:https://push-api.cloud.huawei.com}
   storage:
     base-path: "./storage"
   cors:

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createNotice,
+  deleteNotice,
   getNoticePage,
   updateNotice,
   updateNoticeStatus,
@@ -129,6 +130,24 @@ async function toggleStatus(row: NoticeRecord) {
   }
 }
 
+async function removeNotice(row: NoticeRecord) {
+  try {
+    await ElMessageBox.confirm(`删除后无法恢复，确定删除公告“${row.title}”吗？`, '删除公告', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+    await deleteNotice(row.id)
+    ElMessage.success('公告已删除')
+    resetAndLoad()
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
+    ElMessage.error(error?.response?.data?.message ?? '公告删除失败')
+  }
+}
+
 onMounted(() => {
   resetAndLoad()
 })
@@ -139,7 +158,7 @@ onMounted(() => {
     <el-card class="page-card" shadow="never">
       <div class="page-header">
         <div>
-          <p>公告列表按固定每页 10 条展示，切页仍然走游标分页，不会因为页数变深就越来越慢。</p>
+          <p>公告列表固定每页展示 10 条，翻页仍然走游标分页，不会随着页数变深而越来越慢。</p>
           <h1>公告管理</h1>
         </div>
         <el-button type="primary" @click="openCreate">新建公告</el-button>
@@ -168,12 +187,13 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="publishedAt" label="发布时间" min-width="180" />
         <el-table-column prop="updatedAt" label="更新时间" min-width="180" />
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link :type="row.status === 'PUBLISHED' ? 'warning' : 'success'" @click="toggleStatus(row)">
               {{ row.status === 'PUBLISHED' ? '隐藏' : '发布' }}
             </el-button>
+            <el-button link type="danger" @click="removeNotice(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>

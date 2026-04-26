@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.AdminMobileDeviceMapper">
+
+    <insert id="upsert" parameterType="org.example.kah.entity.AdminMobileDevice" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO admin_mobile_device (
+            admin_user_id, vendor, device_token, device_name, push_enabled, last_seen_at
+        ) VALUES (
+            #{adminUserId}, #{vendor}, #{deviceToken}, #{deviceName}, #{pushEnabled}, #{lastSeenAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            device_name = VALUES(device_name),
+            push_enabled = VALUES(push_enabled),
+            last_seen_at = VALUES(last_seen_at),
+            updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <delete id="deleteByAdminAndToken">
+        DELETE FROM admin_mobile_device
+        WHERE admin_user_id = #{adminUserId}
+          AND vendor = #{vendor}
+          AND device_token = #{deviceToken}
+    </delete>
+
+    <select id="findEnabledTokensForSuperAdmins" resultType="string">
+        SELECT d.device_token
+        FROM admin_mobile_device d
+        INNER JOIN admin_user a ON a.id = d.admin_user_id
+        WHERE d.vendor = #{vendor}
+          AND d.push_enabled = TRUE
+          AND a.status = 'ACTIVE'
+          AND a.is_super_admin = TRUE
+        ORDER BY d.updated_at DESC
+    </select>
+
+    <select id="findEnabledTokensForActiveAdmins" resultType="string">
+        SELECT d.device_token
+        FROM admin_mobile_device d
+        INNER JOIN admin_user a ON a.id = d.admin_user_id
+        WHERE d.vendor = #{vendor}
+          AND d.push_enabled = TRUE
+          AND a.status = 'ACTIVE'
+        ORDER BY d.updated_at DESC
+    </select>
+</mapper>

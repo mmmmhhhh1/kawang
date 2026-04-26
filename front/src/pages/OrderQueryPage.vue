@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { DocumentCopy, Lock, Search } from '@element-plus/icons-vue'
+import { DocumentCopy, Search } from '@element-plus/icons-vue'
 import { memberProfileState } from '@/api/auth'
 import { queryOrders, type CardKeyRecord, type OrderRecord } from '@/api/shop'
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/format'
@@ -70,50 +70,26 @@ async function handleQuery() {
     <section class="section-shell query-hero page-reveal" :style="{ '--delay': '0.04s' }">
       <div class="query-hero__copy">
         <span class="section-kicker">订单查询</span>
-        <h1>只保留当前查单方式，把查询动作做得更直白。</h1>
-        <p>
-          现在查单页只围绕“联系方式 + 查单密码”工作。输入正确后，你可以直接看到订单信息和当前保存的卡密内容，
-          不再需要在不同模式之间反复切换。
-        </p>
+        <h1>查询订单</h1>
       </div>
 
       <div class="query-hero__panel">
-        <span class="soft-chip">
-          <el-icon><Lock /></el-icon>
-          安全查单
-        </span>
         <el-form label-position="top">
           <el-form-item label="联系方式">
-            <el-input
-              v-model="form.buyerContact"
-              maxlength="64"
-              placeholder="微信 / QQ / 手机 / 邮箱"
-              clearable
-            />
+            <el-input v-model="form.buyerContact" maxlength="64" clearable />
           </el-form-item>
           <el-form-item label="查单密码">
-            <el-input
-              v-model="form.lookupSecret"
-              maxlength="20"
-              show-password
-              placeholder="6 到 20 位字母或数字"
-              clearable
-            />
+            <el-input v-model="form.lookupSecret" maxlength="20" show-password clearable />
           </el-form-item>
         </el-form>
-
-        <div class="query-hero__note">
-          <strong>查询说明</strong>
-          <p>请使用下单时填写的联系方式与查单密码。查询成功后，会直接返回订单和卡密记录。</p>
-        </div>
 
         <div class="query-hero__actions">
           <button class="primary-action" type="button" :disabled="loading" @click="handleQuery">
             <el-icon><Search /></el-icon>
-            {{ loading ? '查询中...' : '立即查询' }}
+            {{ loading ? '查询中...' : '查询' }}
           </button>
           <router-link v-if="profile" class="secondary-action" to="/orders/me">我的订单</router-link>
-          <router-link v-else class="secondary-action" to="/login">登录会员中心</router-link>
+          <router-link v-else class="secondary-action" to="/login">登录</router-link>
         </div>
       </div>
     </section>
@@ -124,7 +100,6 @@ async function handleQuery() {
           <span class="section-kicker">查询结果</span>
           <h2>找到 {{ orders.length }} 笔订单</h2>
         </div>
-        <p>总金额 {{ formatCurrency(totalAmount) }}，共展示 {{ totalCardKeys }} 条卡密记录。</p>
       </div>
 
       <div v-if="orders.length" class="result-grid">
@@ -161,7 +136,7 @@ async function handleQuery() {
 
           <div class="result-card__keys">
             <div class="result-card__keys-head">
-              <strong>卡密列表</strong>
+              <strong>卡密</strong>
               <button
                 v-if="order.cardKeys?.length"
                 class="secondary-action result-card__copy"
@@ -169,7 +144,7 @@ async function handleQuery() {
                 @click="copyCardKeys(order.cardKeys)"
               >
                 <el-icon><DocumentCopy /></el-icon>
-                复制全部卡密
+                复制
               </button>
             </div>
 
@@ -181,12 +156,12 @@ async function handleQuery() {
                 </span>
               </div>
             </div>
-            <div v-else class="card-key-empty">当前订单没有可展示的卡密。</div>
+            <div v-else class="card-key-empty">暂无卡密</div>
           </div>
         </article>
       </div>
 
-      <el-empty v-else description="没有查询到匹配的订单" />
+      <el-empty v-else description="没有查询结果" />
     </section>
   </div>
 </template>
@@ -210,13 +185,6 @@ async function handleQuery() {
   line-height: 1.06;
 }
 
-.query-hero__copy p {
-  margin: 0;
-  max-width: 640px;
-  color: var(--text-secondary);
-  line-height: 1.9;
-}
-
 .query-hero__panel {
   padding: 24px;
   border-radius: 28px;
@@ -225,20 +193,6 @@ async function handleQuery() {
     linear-gradient(180deg, rgba(255, 251, 253, 0.94), rgba(248, 244, 255, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.86);
   box-shadow: 0 22px 54px rgba(108, 85, 135, 0.14);
-}
-
-.query-hero__note {
-  margin-top: 6px;
-  padding: 16px;
-  border-radius: 20px;
-  background: rgba(255, 247, 251, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.84);
-}
-
-.query-hero__note p {
-  margin: 8px 0 0;
-  color: var(--text-secondary);
-  line-height: 1.8;
 }
 
 .query-hero__actions {

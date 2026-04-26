@@ -17,6 +17,7 @@ import org.example.kah.security.AuthenticatedUser;
 import org.example.kah.service.AdminNotificationService;
 import org.example.kah.service.FileStorageService;
 import org.example.kah.service.MemberRechargeService;
+import org.example.kah.service.SupportRealtimeService;
 import org.example.kah.service.impl.base.AbstractServiceSupport;
 import org.example.kah.util.CursorCodecUtils;
 import org.springframework.core.io.Resource;
@@ -31,6 +32,7 @@ public class MemberRechargeServiceImpl extends AbstractServiceSupport implements
     private final MemberUserMapper memberUserMapper;
     private final FileStorageService fileStorageService;
     private final AdminNotificationService adminNotificationService;
+    private final SupportRealtimeService supportRealtimeService;
 
     @Override
     public CursorPageResponse<MemberRechargeItemView> listMine(AuthenticatedUser currentUser, int size, String cursor) {
@@ -56,6 +58,7 @@ public class MemberRechargeServiceImpl extends AbstractServiceSupport implements
     public MemberRechargeItemView create(AuthenticatedUser currentUser, BigDecimal amount, MultipartFile screenshot, String payerRemark) {
         require(amount != null && amount.compareTo(new BigDecimal("0.01")) >= 0, "充值金额必须大于 0");
         String relativePath = fileStorageService.saveRechargeScreenshot(screenshot);
+
         MemberRechargeRequest request = new MemberRechargeRequest();
         request.setRequestNo("RC" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase());
         request.setUserId(currentUser.userId());
@@ -64,13 +67,16 @@ public class MemberRechargeServiceImpl extends AbstractServiceSupport implements
         request.setScreenshotPath(relativePath);
         request.setPayerRemark(trim(payerRemark));
         memberRechargeRequestMapper.insert(request);
+
         MemberRechargeRequest created = memberRechargeRequestMapper.findById(request.getId());
-        adminNotificationService.broadcast(new AdminNotificationEvent(
+        AdminNotificationEvent event = new AdminNotificationEvent(
                 "RECHARGE_CREATED",
                 "收到新的充值申请",
                 buildRechargeNotificationMessage(created),
                 created.getId(),
-                created.getCreatedAt()));
+                created.getCreatedAt());
+        adminNotificationService.broadcast(event);
+        supportRealtimeService.dispatchRechargeCreated(event);
         return toMemberView(created);
     }
 

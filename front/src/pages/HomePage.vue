@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Bell, Cherry, MagicStick, ShoppingBag } from '@element-plus/icons-vue'
-import { createOrder, getNotices, getProduct, getProducts, type Notice, type OrderResult, type Product } from '@/api/shop'
+import { createOrder, getHomeData, getProduct, type Notice, type OrderResult, type Product } from '@/api/shop'
 import { fetchMemberProfile, memberProfileState } from '@/api/auth'
 import { formatCurrency, formatDateTime, formatOrderStatus } from '@/utils/format'
 
@@ -22,6 +22,14 @@ const selectedProduct = ref<Product | null>(null)
 const orderResult = ref<OrderResult | null>(null)
 const heroX = ref(0)
 const heroY = ref(0)
+const HOME_CACHE_KEY = 'kawang_home_cache_v1'
+const HOME_CACHE_TTL = 5 * 60 * 1000
+
+type HomeCachePayload = {
+  savedAt: number
+  notices: Notice[]
+  products: Product[]
+}
 
 const form = reactive({
   quantity: 1,
@@ -53,12 +61,55 @@ const heroTransform = computed(() => ({
   '--hero-offset-y': `${heroY.value}px`,
 }))
 
-async function loadHomeData() {
-  loading.value = true
+function readHomeCache() {
   try {
-    const [productData, noticeData] = await Promise.all([getProducts(), getNotices()])
-    products.value = productData
-    notices.value = noticeData
+    const raw = window.localStorage.getItem(HOME_CACHE_KEY)
+    if (!raw) {
+      return null
+    }
+
+    const parsed = JSON.parse(raw) as HomeCachePayload
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > HOME_CACHE_TTL) {
+      window.localStorage.removeItem(HOME_CACHE_KEY)
+      return null
+    }
+
+    if (!Array.isArray(parsed.products) || !Array.isArray(parsed.notices)) {
+      return null
+    }
+
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeHomeCache(nextProducts: Product[], nextNotices: Notice[]) {
+  try {
+    const payload: HomeCachePayload = {
+      savedAt: Date.now(),
+      notices: nextNotices,
+      products: nextProducts,
+    }
+    window.localStorage.setItem(HOME_CACHE_KEY, JSON.stringify(payload))
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+async function loadHomeData() {
+  const cached = readHomeCache()
+  if (cached) {
+    products.value = cached.products
+    notices.value = cached.notices
+  }
+
+  loading.value = !cached
+  try {
+    const homeData = await getHomeData()
+    products.value = homeData.products
+    notices.value = homeData.notices
+    writeHomeCache(homeData.products, homeData.notices)
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '首页数据加载失败')
   } finally {
@@ -168,10 +219,6 @@ onMounted(async () => {
       <div class="hero-copy">
         <span class="section-kicker">樱落计划</span>
         <h1>把常用会员收进一间更好逛、更好买、也更像作品的商店。</h1>
-        <p>
-          Kawang 不只是一个下单页。这里把公告、价格、库存、下单与发卡体验都重新整理成统一节奏，
-          让你在几秒内找到需要的套餐，买完立刻拿到卡密。
-        </p>
 
         <div class="hero-actions">
           <button class="hero-action" type="button" @click="scrollToCatalog">
@@ -186,17 +233,14 @@ onMounted(async () => {
           <article class="hero-metric-card">
             <span>当前可购商品</span>
             <strong>{{ filteredProducts.length }}</strong>
-            <em>围绕当前后端商品库存实时展示</em>
           </article>
           <article class="hero-metric-card">
             <span>实时可用库存</span>
             <strong>{{ totalStock }}</strong>
-            <em>库存与卡密发放联动刷新</em>
           </article>
           <article class="hero-metric-card">
             <span>累计展示销量</span>
             <strong>{{ totalSold }}</strong>
-            <em>每一单都会同步更新热度</em>
           </article>
         </div>
       </div>
@@ -209,19 +253,16 @@ onMounted(async () => {
             樱花主题
           </span>
           <strong>买完即回卡密</strong>
-          <p>订单创建后同步发放卡密，余额与库存也会同步更新。</p>
         </div>
         <div class="hero-art__panel hero-art__panel--floating">
           <span class="ghost-pill">实时库存</span>
           <strong>{{ totalStock }}</strong>
-          <p>围绕当前后端逻辑展示，没有旧版兼容噪音。</p>
         </div>
         <div class="hero-art__panel hero-art__panel--accent">
           <span class="ghost-pill">
             <el-icon><MagicStick /></el-icon>
             体验升级
           </span>
-          <p>更清晰的商品层级、更顺手的购买弹层和更统一的会员中心。</p>
         </div>
       </div>
     </section>
@@ -232,7 +273,6 @@ onMounted(async () => {
           <span class="section-kicker">情报板</span>
           <h2>公告与购买提醒</h2>
         </div>
-        <p>把公告做成更像情报卡的样子，你不需要先翻一串列表才知道最近有什么更新。</p>
       </div>
 
       <el-skeleton :loading="loading" animated :rows="4">
@@ -264,7 +304,6 @@ onMounted(async () => {
           <span class="section-kicker">精选</span>
           <h2>{{ keyword ? `和 “${keyword}” 最接近的热门套餐` : '优先推荐的热门套餐' }}</h2>
         </div>
-        <p>先把最容易成交、信息最完整的套餐抬到前面，让第一屏就有想点开的冲动。</p>
       </div>
 
       <el-skeleton :loading="loading" animated :rows="6">
@@ -319,8 +358,6 @@ onMounted(async () => {
           <span class="section-kicker">商品陈列</span>
           <h2>全部可购商品</h2>
         </div>
-        <p v-if="keyword">当前正在根据 “{{ keyword }}” 筛选商品。</p>
-        <p v-else>商品卡片围绕当前后端逻辑重排，价格、库存、计划名和购买动作会比以前清楚很多。</p>
       </div>
 
       <el-skeleton :loading="loading" animated :rows="8">
@@ -413,7 +450,6 @@ onMounted(async () => {
           <div class="purchase-form__panel">
             <div class="purchase-form__intro">
               <strong>确认购买数量与备注</strong>
-              <p>下单成功后卡密会直接返回，同时你的会员中心里也会同步保留记录。</p>
             </div>
 
             <el-form label-position="top">
@@ -431,7 +467,6 @@ onMounted(async () => {
                   type="textarea"
                   maxlength="200"
                   show-word-limit
-                  placeholder="可以写上你自己的备注，方便后续识别"
                 />
               </el-form-item>
             </el-form>
@@ -447,7 +482,6 @@ onMounted(async () => {
             :closable="false"
             show-icon
             :title="balanceEnough ? '余额充足，可以直接购买' : '余额不足，请先前往会员中心充值'"
-            :description="`当前余额 ${formatCurrency(balance)}，本次需要支付 ${formatCurrency(totalAmount)}`"
           />
 
           <el-alert
@@ -457,7 +491,6 @@ onMounted(async () => {
             show-icon
             :closable="false"
             :title="`订单 ${orderResult.orderNo} 已创建`"
-            :description="`状态：${formatOrderStatus(orderResult.status)}，金额：${formatCurrency(orderResult.totalAmount)}，剩余余额：${formatCurrency(orderResult.remainingBalance)}`"
           />
 
           <div v-if="orderResult" class="purchase-card-keys">
@@ -473,7 +506,7 @@ onMounted(async () => {
                 </span>
               </div>
             </div>
-            <div v-else class="purchase-card-keys__empty">当前订单未返回卡密，请稍后到会员中心查看。</div>
+            <div v-else class="purchase-card-keys__empty">暂无卡密</div>
           </div>
         </div>
       </div>
@@ -977,6 +1010,40 @@ onMounted(async () => {
   .purchase-card-key-item {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (pointer: coarse), (max-width: 720px) {
+  .hero-section {
+    min-height: auto;
+  }
+
+  .hero-art {
+    min-height: 260px;
+  }
+
+  .hero-art__halo {
+    filter: none;
+    transform: none;
+  }
+
+  .hero-art__panel {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 14px 30px rgba(97, 74, 124, 0.16);
+    transform: none;
+  }
+
+  .bulletin-card:hover,
+  .featured-card:hover,
+  .catalog-card:hover {
+    transform: none;
+  }
+
+  .notice-detail__content {
+    min-height: 0;
+    padding: 16px 18px;
+    background: linear-gradient(180deg, rgba(255, 252, 254, 0.98), rgba(249, 246, 255, 0.96));
   }
 }
 </style>

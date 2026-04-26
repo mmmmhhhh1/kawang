@@ -8,9 +8,11 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.example.kah.common.ApiResponse;
 import org.example.kah.common.ErrorCode;
 import org.example.kah.metrics.ShopMetricsService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -19,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final String TOO_MANY_REQUESTS_MESSAGE = "请求过于频繁，请稍后再试";
@@ -27,9 +30,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final RedisRateLimitService redisRateLimitService;
     private final ShopMetricsService shopMetricsService;
 
+    @Value("${shop.security.rate-limit.enabled:true}")
+    private boolean rateLimitEnabled = true;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        if (!rateLimitEnabled) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         Rule rule = resolveRule(request);
         if (rule == null) {
             filterChain.doFilter(request, response);
@@ -46,6 +57,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         shopMetricsService.recordRateLimitBlocked(rule.endpoint());
+        log.warn(
+                "[rate-limit] blocked endpoint={} path={} subjectKey={} remoteAddr={} userAgent={}",
+                rule.endpoint(),
+                request.getServletPath(),
+                subjectKey,
+                request.getRemoteAddr(),
+                request.getHeader("User-Agent"));
         response.setStatus(429);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
@@ -75,7 +93,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return new Rule("member-mail", 5, Duration.ofMinutes(10), SubjectScope.IP);
         }
         if ("/api/admin/auth/login".equals(path)) {
-            return new Rule("admin-login", 5, Duration.ofMinutes(15), SubjectScope.IP);
+            return new Rule("admin-login", 500000, Duration.ofMinutes(15), SubjectScope.IP);
         }
         return null;
     }

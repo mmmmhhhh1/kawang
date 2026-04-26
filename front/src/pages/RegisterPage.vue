@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Lock, Message, Star } from '@element-plus/icons-vue'
+import { ChatDotRound } from '@element-plus/icons-vue'
 import { registerMember, registerMemberByEmail, sendEmailCode } from '@/api/auth'
 
 type RegisterMode = 'password' | 'email'
@@ -32,17 +32,6 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const codePattern = /^\d{6}$/
 const usernamePattern = /^[A-Za-z0-9_]{4,32}$/
 let timerId: number | null = null
-
-const passwordHint = computed(() => {
-  const currentPassword = mode.value === 'password' ? passwordForm.password : emailForm.password
-  if (!currentPassword) {
-    return '密码长度需要在 6 到 64 位之间'
-  }
-  if (currentPassword.length < 6) {
-    return '当前密码长度还不足 6 位'
-  }
-  return '密码长度已经符合要求'
-})
 
 function stopCountdown() {
   if (timerId !== null) {
@@ -135,7 +124,7 @@ async function handleSendCode() {
       email: emailForm.email.trim(),
       scene: 'register',
     })
-    ElMessage.success('验证码已发送，请查收邮箱')
+    ElMessage.success('验证码已发送')
     startCountdown()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '验证码发送失败')
@@ -167,7 +156,7 @@ async function submit() {
         password: emailForm.password,
       })
     }
-    ElMessage.success('注册成功，已自动登录')
+    ElMessage.success('注册成功')
     redirectAfterRegister()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '注册失败')
@@ -183,36 +172,8 @@ onBeforeUnmount(stopCountdown)
   <div class="shell-body">
     <section class="auth-scene page-reveal" :style="{ '--delay': '0.04s' }">
       <article class="glass-card auth-scene__story">
-        <span class="section-kicker">创建会员</span>
-        <h1>把你的购买记录、充值进度和卡密发放都收进同一个账号。</h1>
-        <p>
-          这次注册页围绕当前会员体系重新整理。默认优先推荐邮箱验证码注册，
-          同时继续保留账号密码方式，方便你按熟悉的方式进入。
-        </p>
-
-        <div class="auth-story__list">
-          <div class="auth-story__item">
-            <span class="section-chip">
-              <el-icon><Message /></el-icon>
-              邮箱快速验证
-            </span>
-            <p>更适合当前前台主流程，注册完成后会自动进入会员中心。</p>
-          </div>
-          <div class="auth-story__item">
-            <span class="section-chip">
-              <el-icon><Lock /></el-icon>
-              下单自动归档
-            </span>
-            <p>后续每一笔购买都会自动绑定到当前账号，不再需要再走旧式查询方式。</p>
-          </div>
-          <div class="auth-story__item">
-            <span class="section-chip">
-              <el-icon><Star /></el-icon>
-              统一会员体验
-            </span>
-            <p>注册后你可以直接查看余额、订单、卡密与充值审核进度。</p>
-          </div>
-        </div>
+        <span class="section-kicker">注册</span>
+        <h1>创建会员账号</h1>
       </article>
 
       <article class="auth-panel">
@@ -222,12 +183,6 @@ onBeforeUnmount(stopCountdown)
             创建账号
           </span>
           <h2>{{ mode === 'email' ? '邮箱验证注册' : '账号密码注册' }}</h2>
-          <p>
-            {{ mode === 'email'
-              ? '推荐先完成邮箱验证，再创建用户名与密码，后续登录也会更方便。'
-              : '如果你更喜欢传统方式，也可以直接使用用户名与密码创建账号。'
-            }}
-          </p>
         </div>
 
         <div class="auth-mode-switch" role="tablist" aria-label="注册方式切换">
@@ -251,63 +206,46 @@ onBeforeUnmount(stopCountdown)
 
         <el-form v-if="mode === 'email'" label-position="top">
           <el-form-item label="邮箱地址">
-            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入常用邮箱地址" />
+            <el-input v-model="emailForm.email" maxlength="80" />
           </el-form-item>
           <el-form-item label="邮箱验证码">
             <div class="auth-code-row">
-              <el-input
-                class="auth-code-input"
-                v-model="emailForm.code"
-                maxlength="6"
-                placeholder="请输入 6 位验证码"
-              />
+              <el-input class="auth-code-input" v-model="emailForm.code" maxlength="6" />
               <el-button class="auth-code-button" :disabled="sendingCode || codeCountdown > 0" @click="handleSendCode">
-                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s 后重试` : '发送验证码' }}
+                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s` : '发送验证码' }}
               </el-button>
             </div>
           </el-form-item>
           <el-form-item label="用户名">
-            <el-input v-model="emailForm.username" maxlength="32" placeholder="例如 kawang_user" />
+            <el-input v-model="emailForm.username" maxlength="32" />
           </el-form-item>
           <el-form-item label="密码">
-            <el-input v-model="emailForm.password" type="password" show-password placeholder="至少 6 位" />
+            <el-input v-model="emailForm.password" type="password" show-password />
           </el-form-item>
           <el-form-item label="确认密码">
-            <el-input
-              v-model="emailForm.confirmPassword"
-              type="password"
-              show-password
-              placeholder="再次输入密码"
-            />
+            <el-input v-model="emailForm.confirmPassword" type="password" show-password />
           </el-form-item>
         </el-form>
 
         <el-form v-else label-position="top">
           <el-form-item label="用户名">
-            <el-input v-model="passwordForm.username" maxlength="32" placeholder="例如 kawang_user" />
+            <el-input v-model="passwordForm.username" maxlength="32" />
           </el-form-item>
           <el-form-item label="密码">
-            <el-input v-model="passwordForm.password" type="password" show-password placeholder="至少 6 位" />
+            <el-input v-model="passwordForm.password" type="password" show-password />
           </el-form-item>
           <el-form-item label="确认密码">
-            <el-input
-              v-model="passwordForm.confirmPassword"
-              type="password"
-              show-password
-              placeholder="再次输入密码"
-            />
+            <el-input v-model="passwordForm.confirmPassword" type="password" show-password />
           </el-form-item>
         </el-form>
 
-        <el-alert :closable="false" type="info" show-icon :title="passwordHint" />
-
         <button class="primary-action auth-panel__submit" type="button" :disabled="loading" @click="submit">
-          {{ loading ? '注册中...' : '注册并进入会员中心' }}
+          {{ loading ? '注册中...' : '注册' }}
         </button>
 
         <div class="auth-panel__foot">
           <span>已经有账号？</span>
-          <router-link to="/login">前往登录</router-link>
+          <router-link to="/login">登录</router-link>
         </div>
       </article>
     </section>
@@ -317,46 +255,20 @@ onBeforeUnmount(stopCountdown)
 <style scoped>
 .auth-scene {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 430px);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
   gap: 22px;
 }
 
 .auth-scene__story {
   display: grid;
-  align-content: start;
-  gap: 22px;
+  align-content: center;
   min-height: 100%;
 }
 
 .auth-scene__story h1 {
-  margin: 0;
-  max-width: 620px;
+  margin: 12px 0 0;
   font-size: clamp(34px, 5vw, 54px);
   line-height: 1.06;
-}
-
-.auth-scene__story p {
-  margin: 0;
-  max-width: 620px;
-  color: var(--text-secondary);
-  line-height: 1.9;
-}
-
-.auth-story__list {
-  display: grid;
-  gap: 14px;
-}
-
-.auth-story__item {
-  padding: 18px;
-  border-radius: 24px;
-  background: rgba(255, 251, 253, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.84);
-  box-shadow: 0 14px 30px rgba(108, 85, 135, 0.1);
-}
-
-.auth-story__item p {
-  margin-top: 12px;
 }
 
 .auth-panel {
@@ -378,12 +290,6 @@ onBeforeUnmount(stopCountdown)
 .auth-panel__head h2 {
   margin: 0;
   font-size: 32px;
-}
-
-.auth-panel__head p {
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.82;
 }
 
 .auth-mode-switch {

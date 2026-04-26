@@ -749,3 +749,234 @@ PREPARE stmt_add_member_recharge_created_id_index FROM @member_recharge_created_
 EXECUTE stmt_add_member_recharge_created_id_index;
 DEALLOCATE PREPARE stmt_add_member_recharge_created_id_index;
 
+CREATE TABLE IF NOT EXISTS support_session (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    member_id BIGINT NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'OPEN',
+    last_message_preview VARCHAR(255) NULL,
+    last_message_at DATETIME NULL,
+    member_unread_count INT NOT NULL DEFAULT 0,
+    admin_unread_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    sort_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_support_session_member (member_id),
+    KEY idx_support_session_last_message (last_message_at, id),
+    KEY idx_support_session_status_last_message (status, last_message_at, id),
+    KEY idx_support_session_sort_time (sort_time, id),
+    KEY idx_support_session_status_sort_time (status, sort_time, id),
+    KEY idx_support_session_status_updated (status, updated_at, id),
+    KEY idx_support_session_updated (updated_at, id)
+);
+
+CREATE TABLE IF NOT EXISTS support_message (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    session_id BIGINT NOT NULL,
+    sender_scope VARCHAR(16) NOT NULL,
+    sender_id BIGINT NOT NULL,
+    message_type VARCHAR(16) NOT NULL DEFAULT 'TEXT',
+    content TEXT NOT NULL,
+    attachment_path VARCHAR(255) NULL,
+    attachment_name VARCHAR(255) NULL,
+    attachment_content_type VARCHAR(120) NULL,
+    attachment_size BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_support_message_session_created (session_id, created_at, id),
+    KEY idx_support_message_sender_created (sender_scope, sender_id, created_at, id)
+);
+
+SET @support_session_has_sort_time = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND COLUMN_NAME = 'sort_time'
+);
+SET @support_session_sort_time_sql = IF(
+    @support_session_has_sort_time = 0,
+    'ALTER TABLE support_session ADD COLUMN sort_time DATETIME NULL AFTER updated_at',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_sort_time FROM @support_session_sort_time_sql;
+EXECUTE stmt_add_support_session_sort_time;
+DEALLOCATE PREPARE stmt_add_support_session_sort_time;
+
+UPDATE support_session
+SET sort_time = COALESCE(last_message_at, created_at)
+WHERE sort_time IS NULL;
+
+SET @support_message_has_attachment_path = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_message'
+      AND COLUMN_NAME = 'attachment_path'
+);
+SET @support_message_attachment_path_sql = IF(
+    @support_message_has_attachment_path = 0,
+    'ALTER TABLE support_message ADD COLUMN attachment_path VARCHAR(255) NULL AFTER content',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_message_attachment_path FROM @support_message_attachment_path_sql;
+EXECUTE stmt_add_support_message_attachment_path;
+DEALLOCATE PREPARE stmt_add_support_message_attachment_path;
+
+SET @support_message_has_attachment_name = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_message'
+      AND COLUMN_NAME = 'attachment_name'
+);
+SET @support_message_attachment_name_sql = IF(
+    @support_message_has_attachment_name = 0,
+    'ALTER TABLE support_message ADD COLUMN attachment_name VARCHAR(255) NULL AFTER attachment_path',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_message_attachment_name FROM @support_message_attachment_name_sql;
+EXECUTE stmt_add_support_message_attachment_name;
+DEALLOCATE PREPARE stmt_add_support_message_attachment_name;
+
+SET @support_message_has_attachment_content_type = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_message'
+      AND COLUMN_NAME = 'attachment_content_type'
+);
+SET @support_message_attachment_content_type_sql = IF(
+    @support_message_has_attachment_content_type = 0,
+    'ALTER TABLE support_message ADD COLUMN attachment_content_type VARCHAR(120) NULL AFTER attachment_name',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_message_attachment_content_type FROM @support_message_attachment_content_type_sql;
+EXECUTE stmt_add_support_message_attachment_content_type;
+DEALLOCATE PREPARE stmt_add_support_message_attachment_content_type;
+
+SET @support_message_has_attachment_size = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_message'
+      AND COLUMN_NAME = 'attachment_size'
+);
+SET @support_message_attachment_size_sql = IF(
+    @support_message_has_attachment_size = 0,
+    'ALTER TABLE support_message ADD COLUMN attachment_size BIGINT NULL AFTER attachment_content_type',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_message_attachment_size FROM @support_message_attachment_size_sql;
+EXECUTE stmt_add_support_message_attachment_size;
+DEALLOCATE PREPARE stmt_add_support_message_attachment_size;
+
+CREATE TABLE IF NOT EXISTS admin_mobile_device (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    admin_user_id BIGINT NOT NULL,
+    vendor VARCHAR(32) NOT NULL,
+    device_token VARCHAR(512) NOT NULL,
+    device_name VARCHAR(120) NULL,
+    push_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    last_seen_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_admin_mobile_device_token (admin_user_id, vendor, device_token(191)),
+    KEY idx_admin_mobile_device_push (vendor, push_enabled, updated_at),
+    KEY idx_admin_mobile_device_admin (admin_user_id, updated_at)
+);
+
+SET @support_session_has_unread_admin_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND INDEX_NAME = 'idx_support_session_admin_unread'
+);
+SET @support_session_admin_unread_index_sql = IF(
+    @support_session_has_unread_admin_index = 0,
+    'ALTER TABLE support_session ADD KEY idx_support_session_admin_unread (admin_unread_count, last_message_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_admin_unread_index FROM @support_session_admin_unread_index_sql;
+EXECUTE stmt_add_support_session_admin_unread_index;
+DEALLOCATE PREPARE stmt_add_support_session_admin_unread_index;
+
+SET @support_session_has_unread_member_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND INDEX_NAME = 'idx_support_session_member_unread'
+);
+SET @support_session_member_unread_index_sql = IF(
+    @support_session_has_unread_member_index = 0,
+    'ALTER TABLE support_session ADD KEY idx_support_session_member_unread (member_unread_count, last_message_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_member_unread_index FROM @support_session_member_unread_index_sql;
+EXECUTE stmt_add_support_session_member_unread_index;
+DEALLOCATE PREPARE stmt_add_support_session_member_unread_index;
+
+SET @support_session_has_updated_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND INDEX_NAME = 'idx_support_session_updated'
+);
+SET @support_session_updated_index_sql = IF(
+    @support_session_has_updated_index = 0,
+    'ALTER TABLE support_session ADD KEY idx_support_session_updated (updated_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_updated_index FROM @support_session_updated_index_sql;
+EXECUTE stmt_add_support_session_updated_index;
+DEALLOCATE PREPARE stmt_add_support_session_updated_index;
+
+SET @support_session_has_status_updated_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND INDEX_NAME = 'idx_support_session_status_updated'
+);
+SET @support_session_status_updated_index_sql = IF(
+    @support_session_has_status_updated_index = 0,
+    'ALTER TABLE support_session ADD KEY idx_support_session_status_updated (status, updated_at, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_status_updated_index FROM @support_session_status_updated_index_sql;
+EXECUTE stmt_add_support_session_status_updated_index;
+DEALLOCATE PREPARE stmt_add_support_session_status_updated_index;
+
+SET @support_session_has_sort_time_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND INDEX_NAME = 'idx_support_session_sort_time'
+);
+SET @support_session_sort_time_index_sql = IF(
+    @support_session_has_sort_time_index = 0,
+    'ALTER TABLE support_session ADD KEY idx_support_session_sort_time (sort_time, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_sort_time_index FROM @support_session_sort_time_index_sql;
+EXECUTE stmt_add_support_session_sort_time_index;
+DEALLOCATE PREPARE stmt_add_support_session_sort_time_index;
+
+SET @support_session_has_status_sort_time_index = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'support_session'
+      AND INDEX_NAME = 'idx_support_session_status_sort_time'
+);
+SET @support_session_status_sort_time_index_sql = IF(
+    @support_session_has_status_sort_time_index = 0,
+    'ALTER TABLE support_session ADD KEY idx_support_session_status_sort_time (status, sort_time, id)',
+    'SELECT 1'
+);
+PREPARE stmt_add_support_session_status_sort_time_index FROM @support_session_status_sort_time_index_sql;
+EXECUTE stmt_add_support_session_status_sort_time_index;
+DEALLOCATE PREPARE stmt_add_support_session_status_sort_time_index;
+

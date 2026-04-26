@@ -24,4 +24,20 @@ public class AsyncTaskExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "realtimeTaskExecutor")
+    public Executor realtimeTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(16);
+        executor.setMaxPoolSize(64);
+        executor.setQueueCapacity(2048);
+        executor.setKeepAliveSeconds(60);
+        executor.setAllowCoreThreadTimeOut(true);
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(10);
+        executor.setThreadNamePrefix("kah-realtime-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+        return executor;
+    }
 }

@@ -1,0 +1,99 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: kawang-mysql
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: kawang-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend/kah
+    container_name: kawang-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&cachePrepStmts=true&prepStmtCacheSize=256&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true&rewriteBatchedStatements=true&maintainTimeStats=false
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_DATABASE: ${REDIS_DATABASE}
+      SPRING_MAIL_HOST: ${MAIL_HOST}
+      SPRING_MAIL_PORT: ${MAIL_PORT}
+      SPRING_MAIL_USERNAME: ${MAIL_USERNAME}
+      SPRING_MAIL_PASSWORD: ${MAIL_PASSWORD}
+      SPRING_MAIL_PROTOCOL: ${MAIL_PROTOCOL}
+      SHOP_SECURITY_JWT_SECRET: ${JWT_SECRET}
+      SHOP_SECURITY_ADMIN_USERNAME: ${ADMIN_USERNAME}
+      SHOP_SECURITY_ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SHOP_SECURITY_ADMIN_DISPLAY_NAME: ${ADMIN_DISPLAY_NAME}
+      SHOP_CRYPTO_AES_KEY: ${AES_KEY}
+      SHOP_STORAGE_BASE_PATH: /app/storage
+      SHOP_CORS_ALLOWED_ORIGINS_0: ${SHOP_CORS_ALLOWED_ORIGINS_0}
+      SHOP_PUSH_HUAWEI_ENABLED: ${SHOP_PUSH_HUAWEI_ENABLED}
+      SHOP_PUSH_HUAWEI_APP_ID: ${SHOP_PUSH_HUAWEI_APP_ID}
+      SHOP_PUSH_HUAWEI_CLIENT_ID: ${SHOP_PUSH_HUAWEI_CLIENT_ID}
+      SHOP_PUSH_HUAWEI_CLIENT_SECRET: ${SHOP_PUSH_HUAWEI_CLIENT_SECRET}
+      SHOP_PUSH_HUAWEI_TOKEN_URL: ${SHOP_PUSH_HUAWEI_TOKEN_URL}
+      SHOP_PUSH_HUAWEI_API_BASE_URL: ${SHOP_PUSH_HUAWEI_API_BASE_URL}
+    volumes:
+      - storage_data:/app/storage
+
+  front:
+    build:
+      context: ./front
+    container_name: kawang-front
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+  admin:
+    build:
+      context: ./admin
+    container_name: kawang-admin
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8081:80"
+
+volumes:
+  mysql_data:
+  redis_data:
+  storage_data:

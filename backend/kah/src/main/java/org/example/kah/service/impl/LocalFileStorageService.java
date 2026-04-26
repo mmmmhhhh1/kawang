@@ -7,6 +7,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.example.kah.common.BusinessException;
 import org.example.kah.common.ErrorCode;
@@ -21,6 +22,8 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class LocalFileStorageService implements FileStorageService {
 
+    private static final Pattern SAFE_EXTENSION_PATTERN = Pattern.compile("\\.[a-z0-9]{1,10}");
+
     private final ShopStorageProperties storageProperties;
 
     @Override
@@ -31,6 +34,11 @@ public class LocalFileStorageService implements FileStorageService {
     @Override
     public String savePaymentQr(MultipartFile file) {
         return save(file, "payment-qrs");
+    }
+
+    @Override
+    public String saveSupportAttachment(MultipartFile file) {
+        return save(file, "support-attachments");
     }
 
     @Override
@@ -73,6 +81,6 @@ public class LocalFileStorageService implements FileStorageService {
             return ".png";
         }
         String extension = originalFilename.substring(originalFilename.lastIndexOf('.')).toLowerCase();
-        return extension.length() > 10 ? ".png" : extension;
+        return SAFE_EXTENSION_PATTERN.matcher(extension).matches() ? extension : ".png";
     }
 }

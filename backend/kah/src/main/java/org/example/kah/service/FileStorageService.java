@@ -10,6 +10,8 @@ public interface FileStorageService {
 
     String savePaymentQr(MultipartFile file);
 
+    String saveSupportAttachment(MultipartFile file);
+
     Resource loadAsResource(String relativePath);
 
     Path resolve(String relativePath);

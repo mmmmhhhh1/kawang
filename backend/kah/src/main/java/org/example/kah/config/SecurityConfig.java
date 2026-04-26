@@ -52,14 +52,18 @@ public class SecurityConfig {
                                 "/api/auth/mail/**",
                                 "/api/public/payment/alipay-qr",
                                 "/api/admin/auth/login",
-                                "/ws/admin/notifications")
+                                "/ws/admin/notifications",
+                                "/ws/member/support",
+                                "/ws/admin/support")
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("MEMBER")
                         .requestMatchers(
                                 "/api/auth/me",
                                 "/api/auth/orders",
-                                "/api/auth/recharges/**")
+                                "/api/auth/recharges/**",
+                                "/api/auth/support/**")
                         .hasRole("MEMBER")
+                        .requestMatchers("/api/support/messages/**").hasAnyRole("MEMBER", "ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

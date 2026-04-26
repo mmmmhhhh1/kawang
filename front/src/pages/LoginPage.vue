@@ -2,7 +2,7 @@
 import { onBeforeUnmount, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ChatDotRound, Lock, Message, Star } from '@element-plus/icons-vue'
+import { ChatDotRound } from '@element-plus/icons-vue'
 import { loginMember, loginMemberByEmail, sendEmailCode } from '@/api/auth'
 
 type LoginMode = 'password' | 'email'
@@ -93,7 +93,7 @@ async function handleSendCode() {
       email: emailForm.email.trim(),
       scene: 'login',
     })
-    ElMessage.success('验证码已发送，请查收邮箱')
+    ElMessage.success('验证码已发送')
     startCountdown()
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message ?? '验证码发送失败')
@@ -139,36 +139,8 @@ onBeforeUnmount(stopCountdown)
   <div class="shell-body">
     <section class="auth-scene page-reveal" :style="{ '--delay': '0.04s' }">
       <article class="glass-card auth-scene__story">
-        <span class="section-kicker">登录通行证</span>
-        <h1>欢迎回到你的樱落会员仓库。</h1>
-        <p>
-          登录后，所有购买记录、充值进度和已发放卡密都会收进同一个会员中心。
-          邮箱验证码是默认主入口，账号密码则作为次入口保留。
-        </p>
-
-        <div class="auth-story__list">
-          <div class="auth-story__item">
-            <span class="section-chip">
-              <el-icon><Message /></el-icon>
-              邮箱即达
-            </span>
-            <p>更适合手机登录，验证码到达后直接进入会员中心。</p>
-          </div>
-          <div class="auth-story__item">
-            <span class="section-chip">
-              <el-icon><Lock /></el-icon>
-              购买记录归档
-            </span>
-            <p>登录后下单会自动绑定到当前账号，卡密与余额记录统一查看。</p>
-          </div>
-          <div class="auth-story__item">
-            <span class="section-chip">
-              <el-icon><Star /></el-icon>
-              更清晰的入口
-            </span>
-            <p>这次只保留当前会员流程，不再让旧逻辑干扰你真正要完成的动作。</p>
-          </div>
-        </div>
+        <span class="section-kicker">登录</span>
+        <h1>进入会员中心</h1>
       </article>
 
       <article class="auth-panel">
@@ -178,12 +150,6 @@ onBeforeUnmount(stopCountdown)
             会员登录
           </span>
           <h2>{{ mode === 'email' ? '邮箱验证码登录' : '账号密码登录' }}</h2>
-          <p>
-            {{ mode === 'email'
-              ? '推荐直接使用邮箱验证码进入账号，操作更快也更适合手机。'
-              : '如果你已经习惯用户名与密码，也可以继续使用传统方式登录。'
-            }}
-          </p>
         </div>
 
         <div class="auth-mode-switch" role="tablist" aria-label="登录方式切换">
@@ -207,18 +173,13 @@ onBeforeUnmount(stopCountdown)
 
         <el-form v-if="mode === 'email'" label-position="top">
           <el-form-item label="邮箱地址">
-            <el-input v-model="emailForm.email" maxlength="80" placeholder="请输入常用邮箱地址" />
+            <el-input v-model="emailForm.email" maxlength="80" />
           </el-form-item>
           <el-form-item label="邮箱验证码">
             <div class="auth-code-row">
-              <el-input
-                class="auth-code-input"
-                v-model="emailForm.code"
-                maxlength="6"
-                placeholder="请输入 6 位验证码"
-              />
+              <el-input class="auth-code-input" v-model="emailForm.code" maxlength="6" />
               <el-button class="auth-code-button" :disabled="sendingCode || codeCountdown > 0" @click="handleSendCode">
-                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s 后重试` : '发送验证码' }}
+                {{ sendingCode ? '发送中...' : codeCountdown > 0 ? `${codeCountdown}s` : '发送验证码' }}
               </el-button>
             </div>
           </el-form-item>
@@ -226,20 +187,20 @@ onBeforeUnmount(stopCountdown)
 
         <el-form v-else label-position="top">
           <el-form-item label="用户名">
-            <el-input v-model="passwordForm.username" maxlength="32" placeholder="请输入用户名" />
+            <el-input v-model="passwordForm.username" maxlength="32" />
           </el-form-item>
           <el-form-item label="密码">
-            <el-input v-model="passwordForm.password" type="password" show-password placeholder="请输入密码" />
+            <el-input v-model="passwordForm.password" type="password" show-password />
           </el-form-item>
         </el-form>
 
         <button class="primary-action auth-panel__submit" type="button" :disabled="loading" @click="submit">
-          {{ loading ? '登录中...' : '进入会员中心' }}
+          {{ loading ? '登录中...' : '登录' }}
         </button>
 
         <div class="auth-panel__foot">
           <span>还没有账号？</span>
-          <router-link to="/register">立即注册</router-link>
+          <router-link to="/register">注册</router-link>
         </div>
       </article>
     </section>
@@ -249,46 +210,20 @@ onBeforeUnmount(stopCountdown)
 <style scoped>
 .auth-scene {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 430px);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
   gap: 22px;
 }
 
 .auth-scene__story {
   display: grid;
-  align-content: start;
-  gap: 22px;
+  align-content: center;
   min-height: 100%;
 }
 
 .auth-scene__story h1 {
-  margin: 0;
-  max-width: 620px;
+  margin: 12px 0 0;
   font-size: clamp(34px, 5vw, 54px);
   line-height: 1.06;
-}
-
-.auth-scene__story p {
-  margin: 0;
-  max-width: 620px;
-  color: var(--text-secondary);
-  line-height: 1.9;
-}
-
-.auth-story__list {
-  display: grid;
-  gap: 14px;
-}
-
-.auth-story__item {
-  padding: 18px;
-  border-radius: 24px;
-  background: rgba(255, 251, 253, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.84);
-  box-shadow: 0 14px 30px rgba(108, 85, 135, 0.1);
-}
-
-.auth-story__item p {
-  margin-top: 12px;
 }
 
 .auth-panel {
@@ -310,12 +245,6 @@ onBeforeUnmount(stopCountdown)
 .auth-panel__head h2 {
   margin: 0;
   font-size: 32px;
-}
-
-.auth-panel__head p {
-  margin: 0;
-  color: var(--text-secondary);
-  line-height: 1.82;
 }
 
 .auth-mode-switch {

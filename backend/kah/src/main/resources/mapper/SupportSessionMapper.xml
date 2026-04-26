@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.kah.mapper.SupportSessionMapper">
+
+    <sql id="baseColumns">
+        ss.id, ss.member_id, ss.status, ss.last_message_preview, ss.last_message_at,
+        ss.member_unread_count, ss.admin_unread_count, ss.created_at, ss.updated_at,
+        u.username AS member_username, u.mail AS member_email,
+        ss.sort_time AS sort_time
+    </sql>
+
+    <select id="findById" resultType="org.example.kah.entity.SupportSession">
+        SELECT ss.id, ss.member_id, ss.status, ss.last_message_preview, ss.last_message_at,
+               ss.member_unread_count, ss.admin_unread_count, ss.created_at, ss.updated_at,
+               ss.sort_time AS sort_time
+        FROM support_session ss
+        WHERE ss.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByIdWithMember" resultType="org.example.kah.entity.SupportSession">
+        SELECT <include refid="baseColumns" />
+        FROM support_session ss
+        INNER JOIN member_user u ON u.id = ss.member_id
+        WHERE ss.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="findByMemberIdBasic" resultType="org.example.kah.entity.SupportSession">
+        SELECT ss.id, ss.member_id, ss.status, ss.last_message_preview, ss.last_message_at,
+               ss.member_unread_count, ss.admin_unread_count, ss.created_at, ss.updated_at,
+               ss.sort_time AS sort_time
+        FROM support_session ss
+        WHERE ss.member_id = #{memberId}
+        LIMIT 1
+    </select>
+
+    <select id="findByMemberIdWithMember" resultType="org.example.kah.entity.SupportSession">
+        SELECT <include refid="baseColumns" />
+        FROM support_session ss
+        INNER JOIN member_user u ON u.id = ss.member_id
+        WHERE ss.member_id = #{memberId}
+        LIMIT 1
+    </select>
+
+    <select id="lockById" resultType="org.example.kah.entity.SupportSession">
+        SELECT ss.id, ss.member_id, ss.status, ss.last_message_preview, ss.last_message_at,
+               ss.member_unread_count, ss.admin_unread_count, ss.created_at, ss.updated_at,
+               ss.sort_time AS sort_time
+        FROM support_session ss
+        WHERE ss.id = #{id}
+        FOR UPDATE
+    </select>
+
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO support_session (
+            member_id, status, sort_time
+        ) VALUES (
+            #{memberId}, 'OPEN', CURRENT_TIMESTAMP
+        )
+    </insert>
+
+    <update id="applyMemberMessage">
+        UPDATE support_session
+        SET last_message_preview = #{preview},
+            last_message_at = #{createdAt},
+            sort_time = #{createdAt},
+            admin_unread_count = admin_unread_count + 1
+        WHERE id = #{id}
+    </update>
+
+    <update id="applyAdminMessage">
+        UPDATE support_session
+        SET last_message_preview = #{preview},
+            last_message_at = #{createdAt},
+            sort_time = #{createdAt},
+            member_unread_count = member_unread_count + 1,
+            admin_unread_count = 0
+        WHERE id = #{id}
+    </update>
+
+    <update id="markMemberRead">
+        UPDATE support_session
+        SET member_unread_count = 0
+        WHERE id = #{id}
+    </update>
+
+    <update id="markAdminRead">
+        UPDATE support_session
+        SET admin_unread_count = 0
+        WHERE id = #{id}
+    </update>
+
+    <select id="findAdminCursorPage" resultType="org.example.kah.entity.SupportSession">
+        SELECT <include refid="baseColumns" />
+        FROM support_session ss
+        INNER JOIN member_user u ON u.id = ss.member_id
+        WHERE 1 = 1
+        <if test="status != null and status != ''">
+            AND ss.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                u.username LIKE CONCAT(#{keyword}, '%')
+                OR u.mail LIKE CONCAT(#{keyword}, '%')
+            )
+        </if>
+        <if test="cursorCreatedAt != null and cursorId != null">
+            AND (
+                ss.sort_time &lt; #{cursorCreatedAt}
+                OR (ss.sort_time = #{cursorCreatedAt} AND ss.id &lt; #{cursorId})
+            )
+        </if>
+        ORDER BY ss.sort_time DESC, ss.id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findAdminUpdatedAfter" resultType="org.example.kah.entity.SupportSession">
+        SELECT <include refid="baseColumns" />
+        FROM support_session ss
+        INNER JOIN member_user u ON u.id = ss.member_id
+        WHERE ss.updated_at &gt; #{updatedAfter}
+        <if test="status != null and status != ''">
+            AND ss.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                u.username LIKE CONCAT(#{keyword}, '%')
+                OR u.mail LIKE CONCAT(#{keyword}, '%')
+            )
+        </if>
+        ORDER BY ss.updated_at ASC, ss.id ASC
+        LIMIT #{limit}
+    </select>
+</mapper>

@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { Search, SwitchButton } from '@element-plus/icons-vue'
 import { fetchMemberProfile, logoutMember, memberProfileState } from '@/api/auth'
 import { getStoredToken } from '@/api/http'
+import SupportChatWidget from '@/components/SupportChatWidget.vue'
 
 type FloatingPetal = {
   id: number
@@ -37,6 +38,7 @@ const profile = memberProfileState
 const searchKeyword = ref('')
 const floatingPetals = ref<FloatingPetal[]>([])
 const cursorPetals = ref<CursorPetal[]>([])
+const effectsEnabled = ref(true)
 
 const navItems = [
   { to: '/', label: '首页' },
@@ -163,11 +165,24 @@ function handlePointerMove(event: MouseEvent) {
   spawnCursorPetals(event.clientX, event.clientY)
 }
 
+function shouldEnableEffects() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true
+  }
+  return !(
+    window.matchMedia('(pointer: coarse)').matches ||
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+}
+
 onMounted(() => {
   syncSearchKeyword()
-  buildFloatingPetals()
+  effectsEnabled.value = shouldEnableEffects()
+  if (effectsEnabled.value) {
+    buildFloatingPetals()
+    window.addEventListener('mousemove', handlePointerMove, { passive: true })
+  }
   void syncProfile()
-  window.addEventListener('mousemove', handlePointerMove, { passive: true })
 })
 
 onBeforeUnmount(() => {
@@ -179,7 +194,7 @@ watch(() => route.fullPath, syncSearchKeyword)
 
 <template>
   <div class="store-app-shell">
-    <div class="store-petal-layer" aria-hidden="true">
+    <div v-if="effectsEnabled" class="store-petal-layer" aria-hidden="true">
       <span
         v-for="petal in floatingPetals"
         :key="petal.id"
@@ -197,7 +212,7 @@ watch(() => route.fullPath, syncSearchKeyword)
       />
     </div>
 
-    <div class="store-cursor-petal-layer" aria-hidden="true">
+    <div v-if="effectsEnabled" class="store-cursor-petal-layer" aria-hidden="true">
       <span
         v-for="petal in cursorPetals"
         :key="petal.id"
@@ -243,7 +258,6 @@ watch(() => route.fullPath, syncSearchKeyword)
             v-model="searchKeyword"
             :prefix-icon="Search"
             clearable
-            placeholder="搜索你想要的会员、平台或套餐"
             @keyup.enter="submitSearch"
             @clear="clearSearch"
           />
@@ -272,5 +286,7 @@ watch(() => route.fullPath, syncSearchKeyword)
     <main class="store-main">
       <router-view />
     </main>
+
+    <SupportChatWidget v-if="profile" />
   </div>
 </template>

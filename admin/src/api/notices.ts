@@ -57,3 +57,7 @@ export async function updateNoticeStatus(id: number, status: 'PUBLISHED' | 'HIDD
   const response = await adminHttp.patch<ApiResponse<NoticeRecord>>(`/notices/${id}/status`, { status })
   return response.data.data
 }
+
+export async function deleteNotice(id: number) {
+  await adminHttp.delete<ApiResponse<null>>(`/notices/${id}`)
+}

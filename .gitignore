@@ -22,3 +22,25 @@ target/
 # editor / system files
 .DS_Store
 Thumbs.db
+
+# Java / Gradle / Android build outputs
+**/build/
+.gradle/
+out/
+*.class
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+
+# Android packages
+*.apk
+*.aab
+*.ap_
+
+# Logs
+*.log
+
+# Runtime uploaded files
+backend/kah/storage/

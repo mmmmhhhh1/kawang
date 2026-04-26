@@ -21,6 +21,11 @@ export type Notice = {
   publishedAt: string
 }
 
+export type HomeData = {
+  products: Product[]
+  notices: Notice[]
+}
+
 export type CreateOrderPayload = {
   productId: number
   quantity: number
@@ -72,6 +77,11 @@ export type MemberOrderPage = {
 
 export async function getProducts() {
   const response = await http.get<ApiResponse<Product[]>>('/products')
+  return response.data.data
+}
+
+export async function getHomeData() {
+  const response = await http.get<ApiResponse<HomeData>>('/home')
   return response.data.data
 }
 
